@@ -311,8 +311,14 @@ class TicketView(discord.ui.View):
 async def on_ready():
     await init_db()
     bot.add_view(TicketView())
-    print(f'✅ {bot.user} заступил на дежурство!')
 
+    try:
+        await bot.tree.sync()
+        print("🔄 Slash-команды синхронизированы")
+    except Exception as e:
+        print(f"Ошибка sync: {e}")
+
+    print(f'✅ {bot.user} заступил на дежурство!')
 
 # --- ЛОГИ (ИСПРАВЛЕНО ВРЕМЯ) ---
 @bot.event
