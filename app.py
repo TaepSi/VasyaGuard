@@ -313,25 +313,6 @@ async def on_ready():
     bot.add_view(TicketView())
     print(f'✅ {bot.user} заступил на дежурство!')
 
-@bot.event
-async def on_message(message):
-    if message.author.bot: return
-
-    # 1. Статистика
-    async with aiosqlite.connect("stats.db") as db:
-        await db.execute("INSERT OR IGNORE INTO users (user_id, msg_count) VALUES (?, 0)", (message.author.id,))
-        await db.execute("UPDATE users SET msg_count = msg_count + 1 WHERE user_id = ?", (message.author.id,))
-        await db.commit()
-
-    # 2. Фильтр мата и ссылок
-    content = message.content.lower()
-    is_admin = message.author.guild_permissions.administrator
-    if ("http" in content or any(w in content for w in BAD_WORDS)) and not is_admin:
-        await message.delete()
-        await message.channel.send(f"🚫 {message.author.mention}, тут такое нельзя!", delete_after=5)
-        return
-
-    await bot.process_commands(message)
 
 # --- ЛОГИ (ИСПРАВЛЕНО ВРЕМЯ) ---
 @bot.event
