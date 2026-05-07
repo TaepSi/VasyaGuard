@@ -174,9 +174,24 @@ async def on_message_edit(before, after):
 # Лог входа новых участников
 @bot.event
 async def on_member_join(member):
-    log_channel = discord.utils.get(member.guild.text_channels, name='logs')
+    # ID КАНАЛОВ
+    WELCOME_CHANNEL_ID = 1501603960392253541  # Общий чат для приветствия
+    LOG_CHANNEL_NAME = 'logs'                  # Название твоего канала с логами
+
+    # 1. ПРИВЕТСТВИЕ В ОБЩЕМ ЧАТЕ
+    welcome_channel = bot.get_channel(WELCOME_CHANNEL_ID)
+    if welcome_channel:
+        welcome_text = (
+            f"Мир вам, {member.mention}! 🤝 "
+            f"Добро пожаловать на наш христианский сервер. "
+            f"Здесь мы вместе изучаем Слово Божье, делимся радостью и "
+            f"поддерживаем друг друга в вере. Чувствуйте себя как дома!"
+        )
+        await welcome_channel.send(welcome_text)
+
+    # 2. ОТЧЕТ В ЛОГИ (для админов)
+    log_channel = discord.utils.get(member.guild.text_channels, name=LOG_CHANNEL_NAME)
     if log_channel:
-        # Считаем, сколько дней назад создан аккаунт
         now = datetime.datetime.now(datetime.timezone.utc)
         account_age = (now - member.created_at).days
         
@@ -189,12 +204,11 @@ async def on_member_join(member):
         if member.display_avatar:
             embed.set_thumbnail(url=member.display_avatar.url)
             
-        embed.add_field(name="ID аккаунта", value=member.id, inline=True)
-        embed.add_field(name="Возраст аккаунта", value=f"{account_age} дней", inline=True)
+        embed.add_field(name="ID", value=member.id, inline=True)
+        embed.add_field(name="Аккаунту дней", value=account_age, inline=True)
         
-        # Если аккаунт совсем свежий (меньше 3 дней), выделим это
         if account_age < 3:
-            embed.add_field(name="⚠️ Внимание", value="Очень подозрительный (новый) аккаунт!", inline=False)
+            embed.add_field(name="⚠️ Внимание", value="Новый аккаунт (возможен рейд)!", inline=False)
             
         await log_channel.send(embed=embed)
 
