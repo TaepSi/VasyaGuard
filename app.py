@@ -12,7 +12,9 @@ app = Flask('')
 def home(): return "VasyaGuard is online!"
 
 def run_web():
-    app.run(host='0.0.0.0', port=8080)
+    # Render передает порт через переменную окружения PORT
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
     t = Thread(target=run_web)
@@ -67,13 +69,13 @@ async def on_ready():
 async def on_message(message):
     if message.author.bot: return
 
-    # 1. Статистика
+    # Статистика
     async with aiosqlite.connect("stats.db") as db:
         await db.execute("INSERT OR IGNORE INTO users (user_id, msg_count) VALUES (?, 0)", (message.author.id,))
         await db.execute("UPDATE users SET msg_count = msg_count + 1 WHERE user_id = ?", (message.author.id,))
         await db.commit()
 
-    # 2. Фильтр мата и ссылок
+    # Фильтр мата и ссылок
     content = message.content.lower()
     is_admin = message.author.guild_permissions.administrator
     if ("http" in content or any(w in content for w in BAD_WORDS)) and not is_admin:
@@ -89,20 +91,10 @@ async def on_message_delete(message):
     if message.author.bot: return
     log_channel = discord.utils.get(message.guild.text_channels, name='logs')
     if log_channel:
-        embed = discord.Embed(title="🗑 Удалено", color=discord.Color.red(), timestamp=datetime.datetime.now(datetime.UTC))
+        # Исправлено: используем timezone.utc
+        embed = discord.Embed(title="🗑 Удалено", color=discord.Color.red(), timestamp=datetime.datetime.now(datetime.timezone.utc))
         embed.add_field(name="Автор", value=message.author.mention)
         embed.add_field(name="Текст", value=message.content or "Файл", inline=False)
-        await log_channel.send(embed=embed)
-
-@bot.event
-async def on_message_edit(before, after):
-    if before.author.bot or before.content == after.content: return
-    log_channel = discord.utils.get(before.guild.text_channels, name='logs')
-    if log_channel:
-        embed = discord.Embed(title="📝 Изменено", color=discord.Color.orange(), timestamp=datetime.datetime.now(datetime.UTC))
-        embed.add_field(name="Автор", value=before.author.mention)
-        embed.add_field(name="Было", value=before.content, inline=False)
-        embed.add_field(name="Стало", value=after.content, inline=False)
         await log_channel.send(embed=embed)
 
 # --- КОМАНДЫ ---
@@ -124,12 +116,6 @@ async def top(ctx):
         name = user.name if user else f"ID: {user_id}"
         embed.add_field(name=f"{i}. {name}", value=f"Сообщений: {count}", inline=False)
     await ctx.send(embed=embed)
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def clear(ctx, amount: int = 10):
-    await ctx.channel.purge(limit=amount + 1)
-    await ctx.send(f"🧹 Удалено {amount} сообщений.", delete_after=5)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
