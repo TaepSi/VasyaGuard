@@ -150,6 +150,51 @@ async def on_member_remove(member):
             
         await log_channel.send(embed=embed)
 
+# --- СИСТЕМА ЖАЛОБ (/report) ---
+
+@bot.tree.command(name="report", description="Отправить жалобу на игрока (только для чата дебатов)")
+@discord.app_commands.describe(нарушитель="На кого жалуемся?", причина="Что именно он нарушил?")
+async def report(interaction: discord.Interaction, нарушитель: discord.Member, причина: str):
+    # Твои ID каналов
+    DEBATE_CHANNEL_ID = 1501863197701963786  # чат-дебатов
+    REPORTS_LOG_ID = 1501935770280395014     # жалобы
+
+    # 1. Проверяем канал
+    if interaction.channel_id != DEBATE_CHANNEL_ID:
+        return await interaction.response.send_message(
+            f"❌ Эту команду можно использовать только в канале <#{DEBATE_CHANNEL_ID}>!", 
+            ephemeral=True
+        )
+
+    # 2. Ищем канал для админов
+    report_channel = bot.get_channel(REPORTS_LOG_ID)
+    if not report_channel:
+        return await interaction.response.send_message("❌ Ошибка: Канал для жалоб не найден.", ephemeral=True)
+
+    # 3. Создаем карточку жалобы
+    embed = discord.Embed(
+        title="🚨 Новая жалоба", 
+        color=discord.Color.red(),
+        timestamp=datetime.datetime.now(datetime.timezone.utc)
+    )
+    embed.add_field(name="Отправитель", value=interaction.user.mention, inline=True)
+    embed.add_field(name="Нарушитель", value=нарушитель.mention, inline=True)
+    embed.add_field(name="Причина", value=причина, inline=False)
+    embed.set_footer(text=f"ID автора: {interaction.user.id}")
+
+    # Отправляем в канал #жалобы
+    await report_channel.send(embed=embed)
+    
+    # Ответ пользователю (скрытый)
+    await interaction.response.send_message("✅ Ваша жалоба отправлена администрации. Спасибо!", ephemeral=True)
+
+# Команда для синхронизации слеш-команд
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def sync(ctx):
+    await bot.tree.sync()
+    await ctx.send("✅ Команда `/report` синхронизирована и готова к работе!")
+
 
 
 # --- КОМАНДЫ ---
