@@ -112,20 +112,44 @@ async def on_message_edit(before, after):
 async def on_member_join(member):
     log_channel = discord.utils.get(member.guild.text_channels, name='logs')
     if log_channel:
+        # Считаем, сколько дней назад создан аккаунт
+        now = datetime.datetime.now(datetime.timezone.utc)
+        account_age = (now - member.created_at).days
+        
         embed = discord.Embed(
             title="📥 Новый участник", 
             color=discord.Color.green(), 
             description=f"{member.mention} зашел на сервер.",
-            timestamp=datetime.datetime.now(datetime.timezone.utc)
+            timestamp=now
         )
-        # Показываем аватарку новичка, если она есть
         if member.display_avatar:
             embed.set_thumbnail(url=member.display_avatar.url)
             
-        embed.add_field(name="ID аккаунта", value=member.id)
-        embed.add_field(name="Дата регистрации", value=member.created_at.strftime("%d.%m.%Y"))
+        embed.add_field(name="ID аккаунта", value=member.id, inline=True)
+        embed.add_field(name="Возраст аккаунта", value=f"{account_age} дней", inline=True)
         
+        # Если аккаунт совсем свежий (меньше 3 дней), выделим это
+        if account_age < 3:
+            embed.add_field(name="⚠️ Внимание", value="Очень подозрительный (новый) аккаунт!", inline=False)
+            
         await log_channel.send(embed=embed)
+
+# Лог выхода участников
+@bot.event
+async def on_member_remove(member):
+    log_channel = discord.utils.get(member.guild.text_channels, name='logs')
+    if log_channel:
+        embed = discord.Embed(
+            title="📤 Участник покинул сервер", 
+            color=discord.Color.light_grey(), 
+            description=f"**{member.name}**#{member.discriminator} (ID: {member.id}) ушел от нас.",
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        if member.display_avatar:
+            embed.set_thumbnail(url=member.display_avatar.url)
+            
+        await log_channel.send(embed=embed)
+
 
 
 # --- КОМАНДЫ ---
