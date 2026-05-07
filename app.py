@@ -5,6 +5,8 @@ import os
 import aiosqlite
 from flask import Flask
 from threading import Thread
+from collections import defaultdict
+import time
 
 # --- БЛОК ОЖИВЛЯЛКИ (ИСПРАВЛЕН ПОРТ) ---
 app = Flask('')
@@ -35,63 +37,245 @@ MUTE_WORDS = [
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# =========================================
+# АНТИСПАМ
+# =========================================
+
+user_messages = defaultdict(list)
+
+SPAM_LIMIT = 5      # сообщений
+SPAM_TIME = 4       # секунд
+SPAM_TIMEOUT = 10   # минут
+
+# =========================================
+# АНТИ МАСС УПОМИНАНИЯ
+# =========================================
+
+MAX_MENTIONS = 5
+MENTION_TIMEOUT = 30
+
 @bot.event
 async def on_message(message):
-    if message.author.bot: return
-    
+
+    if message.author.bot:
+        return
+
     content = message.content.lower()
     is_admin = message.author.guild_permissions.administrator
 
-    # --- АВТО-МУТ ЗА МАТ ---
-    if any(word in content for word in MUTE_WORDS) and not is_admin:
+    # =========================================
+    # АНТИСПАМ
+    # =========================================
+
+    now = time.time()
+
+    user_messages[message.author.id].append(now)
+
+    # оставляем только свежие сообщения
+    user_messages[message.author.id] = [
+        t for t in user_messages[message.author.id]
+        if now - t <= SPAM_TIME
+    ]
+
+    # если спамит
+    if len(user_messages[message.author.id]) >= SPAM_LIMIT and not is_admin:
+
+        try:
+            duration = datetime.timedelta(minutes=SPAM_TIMEOUT)
+
+            await message.author.timeout(
+                duration,
+                reason="Антиспам"
+            )
+
+            await message.channel.send(
+                f"🚫 {message.author.mention} получил мут за спам.",
+                delete_after=5
+            )
+
+            # ЛОГ В КАНАЛ МУТОВ
+            mute_channel = bot.get_channel(MUTE_LOGS_ID)
+
+            if mute_channel:
+
+                embed = discord.Embed(
+                    title="🚫 АНТИСПАМ",
+                    color=discord.Color.orange(),
+                    timestamp=datetime.datetime.now(datetime.timezone.utc)
+                )
+
+                embed.add_field(
+                    name="Пользователь",
+                    value=f"{message.author} ({message.author.id})",
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="Наказание",
+                    value=f"{SPAM_TIMEOUT} минут тайм-аут",
+                    inline=False
+                )
+
+                await mute_channel.send(embed=embed)
+
+            user_messages[message.author.id].clear()
+
+            return
+
+        except Exception as e:
+            print(f"Ошибка антиспама: {e}")
+
+    # =========================================
+    # АНТИ МАСС УПОМИНАНИЯ
+    # =========================================
+
+    if len(message.mentions) >= MAX_MENTIONS and not is_admin:
+
         try:
             await message.delete()
-            duration = datetime.timedelta(days=1)
-            await message.author.timeout(duration, reason=f"Мат: {message.content[:100]}")
-            await message.channel.send(f"🤐 {message.author.mention} замучен на 24 часа. Следите за речью!", delete_after=7)
-            
+
+            duration = datetime.timedelta(minutes=MENTION_TIMEOUT)
+
+            await message.author.timeout(
+                duration,
+                reason="Массовые упоминания"
+            )
+
+            await message.channel.send(
+                f"🚫 {message.author.mention} получил мут за массовые упоминания.",
+                delete_after=5
+            )
+
+            # ЛОГ В КАНАЛ МУТОВ
             mute_channel = bot.get_channel(MUTE_LOGS_ID)
+
             if mute_channel:
-                embed = discord.Embed(title="🚫 АВТО-МУТ", color=discord.Color.red(), timestamp=datetime.datetime.now(datetime.timezone.utc))
-                embed.add_field(name="Нарушитель", value=f"{message.author} ({message.author.id})", inline=False)
-                embed.add_field(name="Сообщение", value=message.content, inline=False)
-                embed.add_field(name="Срок", value="24 часа", inline=True)
+
+                embed = discord.Embed(
+                    title="🚫 МАСС УПОМИНАНИЯ",
+                    color=discord.Color.red(),
+                    timestamp=datetime.datetime.now(datetime.timezone.utc)
+                )
+
+                embed.add_field(
+                    name="Пользователь",
+                    value=f"{message.author} ({message.author.id})",
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="Упоминаний",
+                    value=str(len(message.mentions)),
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="Наказание",
+                    value=f"{MENTION_TIMEOUT} минут тайм-аут",
+                    inline=False
+                )
+
                 await mute_channel.send(embed=embed)
-            return 
+
+            return
+
+        except Exception as e:
+            print(f"Ошибка анти-масс-пинга: {e}")
+
+    # =========================================
+    # АВТО-МУТ ЗА МАТ
+    # =========================================
+
+    if any(word in content for word in MUTE_WORDS) and not is_admin:
+
+        try:
+            await message.delete()
+
+            duration = datetime.timedelta(days=1)
+
+            await message.author.timeout(
+                duration,
+                reason=f"Мат: {message.content[:100]}"
+            )
+
+            await message.channel.send(
+                f"🤐 {message.author.mention} замучен на 24 часа.",
+                delete_after=7
+            )
+
+            mute_channel = bot.get_channel(MUTE_LOGS_ID)
+
+            if mute_channel:
+
+                embed = discord.Embed(
+                    title="🚫 АВТО-МУТ",
+                    color=discord.Color.red(),
+                    timestamp=datetime.datetime.now(datetime.timezone.utc)
+                )
+
+                embed.add_field(
+                    name="Нарушитель",
+                    value=f"{message.author} ({message.author.id})",
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="Сообщение",
+                    value=message.content,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="Срок",
+                    value="24 часа",
+                    inline=True
+                )
+
+                await mute_channel.send(embed=embed)
+
+            return
+
         except Exception as e:
             print(f"Ошибка при авто-муте: {e}")
 
-    # --- ОБЫЧНЫЙ ФИЛЬТР ССЫЛОК ---
+    # =========================================
+    # ФИЛЬТР ССЫЛОК
+    # =========================================
+
     if "http" in content and not is_admin:
+
         await message.delete()
+
+        await message.channel.send(
+            f"🚫 {message.author.mention}, ссылки запрещены.",
+            delete_after=5
+        )
+
         return
 
-    # --- СТАТИСТИКА ---
+    # =========================================
+    # СТАТИСТИКА
+    # =========================================
+
     async with aiosqlite.connect("stats.db") as db:
-        await db.execute("INSERT OR IGNORE INTO users (user_id, msg_count) VALUES (?, 0)", (message.author.id,))
-        await db.execute("UPDATE users SET msg_count = msg_count + 1 WHERE user_id = ?", (message.author.id,))
+
+        await db.execute(
+            "INSERT OR IGNORE INTO users (user_id, msg_count) VALUES (?, 0)",
+            (message.author.id,)
+        )
+
+        await db.execute(
+            "UPDATE users SET msg_count = msg_count + 1 WHERE user_id = ?",
+            (message.author.id,)
+        )
+
         await db.commit()
 
+    # =========================================
+    # КОМАНДЫ
+    # =========================================
+
     await bot.process_commands(message)
-
-@bot.event
-async def on_member_update(before, after):
-    if before.timed_out_until != after.timed_out_until:
-        mute_channel = bot.get_channel(MUTE_LOGS_ID)
-        if mute_channel and after.timed_out_until is not None:
-            reason = "Причина не указана"
-            async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_update):
-                if entry.target.id == after.id:
-                    reason = entry.reason or "Причина не указана"
-                    break
-
-            embed = discord.Embed(title="🔨 Выдан тайм-аут", color=discord.Color.orange(), timestamp=datetime.datetime.now(datetime.timezone.utc))
-            embed.add_field(name="Пользователь", value=after.mention, inline=True)
-            embed.add_field(name="Причина", value=reason, inline=False)
-            embed.add_field(name="До окончания", value=f"<t:{int(after.timed_out_until.timestamp())}:R>", inline=True)
-            await mute_channel.send(embed=embed)
-
-
 # --- БАЗА ДАННЫХ ---
 async def init_db():
     async with aiosqlite.connect("stats.db") as db:
