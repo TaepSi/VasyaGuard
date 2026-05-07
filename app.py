@@ -6,13 +6,13 @@ import aiosqlite
 from flask import Flask
 from threading import Thread
 
-# --- БЛОК ОЖИВЛЯЛКИ ---
+# --- БЛОК ОЖИВЛЯЛКИ (ИСПРАВЛЕН ПОРТ) ---
 app = Flask('')
 @app.route('/')
 def home(): return "VasyaGuard is online!"
 
 def run_web():
-    # Render передает порт через переменную окружения PORT
+    # Render автоматически подставит нужный порт
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
@@ -56,7 +56,7 @@ class TicketView(discord.ui.View):
         
         channel = await guild.create_text_channel(f"ticket-{user.name}", overwrites=overwrites)
         await interaction.response.send_message(f"Тикет создан: {channel.mention}", ephemeral=True)
-        await channel.send(f"Привет {user.mention}! Опиши проблему. Чтобы закрыть чат, админ должен его удалить.")
+        await channel.send(f"Привет {user.mention}! Опиши проблему. Админы скоро подойдут.")
 
 # --- СОБЫТИЯ ---
 @bot.event
@@ -69,13 +69,13 @@ async def on_ready():
 async def on_message(message):
     if message.author.bot: return
 
-    # Статистика
+    # 1. Статистика
     async with aiosqlite.connect("stats.db") as db:
         await db.execute("INSERT OR IGNORE INTO users (user_id, msg_count) VALUES (?, 0)", (message.author.id,))
         await db.execute("UPDATE users SET msg_count = msg_count + 1 WHERE user_id = ?", (message.author.id,))
         await db.commit()
 
-    # Фильтр мата и ссылок
+    # 2. Фильтр мата и ссылок
     content = message.content.lower()
     is_admin = message.author.guild_permissions.administrator
     if ("http" in content or any(w in content for w in BAD_WORDS)) and not is_admin:
@@ -85,16 +85,19 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-# --- ЛОГИ ---
+# --- ЛОГИ (ИСПРАВЛЕНО ВРЕМЯ) ---
 @bot.event
 async def on_message_delete(message):
     if message.author.bot: return
     log_channel = discord.utils.get(message.guild.text_channels, name='logs')
     if log_channel:
-        # Исправлено: используем timezone.utc
-        embed = discord.Embed(title="🗑 Удалено", color=discord.Color.red(), timestamp=datetime.datetime.now(datetime.timezone.utc))
+        embed = discord.Embed(
+            title="🗑 Удалено", 
+            color=discord.Color.red(), 
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
         embed.add_field(name="Автор", value=message.author.mention)
-        embed.add_field(name="Текст", value=message.content or "Файл", inline=False)
+        embed.add_field(name="Текст", value=message.content or "Файл/Картинка", inline=False)
         await log_channel.send(embed=embed)
 
 # --- КОМАНДЫ ---
@@ -110,7 +113,7 @@ async def top(ctx):
     
     if not rows: return await ctx.send("Статистика пуста.")
     
-    embed = discord.Embed(title="🏆 Топ активных", color=discord.Color.gold())
+    embed = discord.Embed(title="🏆 Топ активных участников", color=discord.Color.gold())
     for i, (user_id, count) in enumerate(rows, 1):
         user = bot.get_user(user_id)
         name = user.name if user else f"ID: {user_id}"
@@ -120,7 +123,7 @@ async def top(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setup_tickets(ctx):
-    embed = discord.Embed(title="Поддержка", description="Нажми кнопку, чтобы создать приватный чат с админами.")
+    embed = discord.Embed(title="Поддержка", description="Нажми кнопку ниже, чтобы создать приватный чат с админами.")
     await ctx.send(embed=embed, view=TicketView())
 
 # --- ЗАПУСК ---
