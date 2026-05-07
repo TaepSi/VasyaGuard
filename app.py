@@ -23,10 +23,77 @@ def keep_alive():
 
 # --- НАСТРОЙКИ ---
 TOKEN = os.getenv("DISCORD_TOKEN")
-BAD_WORDS = ['хер', 'сука', 'бля', 'блять', 'пидор', 'гандон']
+MUTE_LOGS_ID = 1501939058803474473
+
+# Это корни слов. Так бот поймает и "пидор", и "пидорасина", и "заебался"
+MUTE_WORDS = [
+    'хуй', 'пизд', 'еба', 'ебл', 'бля', 'сук', 'гандон', 'пидор', 'пидар', 
+    'хуе', 'охуе', 'заеб', 'муда', 'шлюх', 'курва', 'дроч', 'сучк', 'трах',
+    'уеб', 'говн', 'гонд', 'член', 'даун', 'лох', 'дебил', 'урод'
+]
+
+# Для совместимости со старым кодом (если где-то осталось название BAD_WORDS)
+BAD_WORDS = MUTE_WORDS 
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+@bot.event
+async def on_message(message):
+    if message.author.bot: return
+    
+    content = message.content.lower()
+    is_admin = message.author.guild_permissions.administrator
+
+    # --- АВТО-МУТ ЗА МАТ ---
+    if any(word in content for word in MUTE_WORDS) and not is_admin:
+        try:
+            await message.delete()
+            duration = datetime.timedelta(days=1)
+            await message.author.timeout(duration, reason=f"Мат: {message.content[:100]}")
+            await message.channel.send(f"🤐 {message.author.mention} замучен на 24 часа. Следите за речью!", delete_after=7)
+            
+            mute_channel = bot.get_channel(MUTE_LOGS_ID)
+            if mute_channel:
+                embed = discord.Embed(title="🚫 АВТО-МУТ", color=discord.Color.red(), timestamp=datetime.datetime.now(datetime.timezone.utc))
+                embed.add_field(name="Нарушитель", value=f"{message.author} ({message.author.id})", inline=False)
+                embed.add_field(name="Сообщение", value=message.content, inline=False)
+                embed.add_field(name="Срок", value="24 часа", inline=True)
+                await mute_channel.send(embed=embed)
+            return 
+        except Exception as e:
+            print(f"Ошибка при авто-муте: {e}")
+
+    # --- ОБЫЧНЫЙ ФИЛЬТР ССЫЛОК ---
+    if "http" in content and not is_admin:
+        await message.delete()
+        return
+
+    # --- СТАТИСТИКА ---
+    async with aiosqlite.connect("stats.db") as db:
+        await db.execute("INSERT OR IGNORE INTO users (user_id, msg_count) VALUES (?, 0)", (message.author.id,))
+        await db.execute("UPDATE users SET msg_count = msg_count + 1 WHERE user_id = ?", (message.author.id,))
+        await db.commit()
+
+    await bot.process_commands(message)
+
+@bot.event
+async def on_member_update(before, after):
+    if before.timed_out_until != after.timed_out_until:
+        mute_channel = bot.get_channel(MUTE_LOGS_ID)
+        if mute_channel and after.timed_out_until is not None:
+            reason = "Причина не указана"
+            async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_update):
+                if entry.target.id == after.id:
+                    reason = entry.reason or "Причина не указана"
+                    break
+
+            embed = discord.Embed(title="🔨 Выдан тайм-аут", color=discord.Color.orange(), timestamp=datetime.datetime.now(datetime.timezone.utc))
+            embed.add_field(name="Пользователь", value=after.mention, inline=True)
+            embed.add_field(name="Причина", value=reason, inline=False)
+            embed.add_field(name="До окончания", value=f"<t:{int(after.timed_out_until.timestamp())}:R>", inline=True)
+            await mute_channel.send(embed=embed)
+
 
 # --- БАЗА ДАННЫХ ---
 async def init_db():
