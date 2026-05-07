@@ -91,13 +91,20 @@ async def on_message_delete(message):
     if message.author.bot: return
     log_channel = discord.utils.get(message.guild.text_channels, name='logs')
     if log_channel:
-        embed = discord.Embed(
-            title="🗑 Удалено", 
-            color=discord.Color.red(), 
-            timestamp=datetime.datetime.now(datetime.timezone.utc)
-        )
-        embed.add_field(name="Автор", value=message.author.mention)
-        embed.add_field(name="Текст", value=message.content or "Файл/Картинка", inline=False)
+        embed = discord.Embed(title="🗑 Удалено", color=discord.Color.red(), timestamp=datetime.datetime.now(datetime.timezone.utc))
+        embed.add_field(name="Автор", value=f"{message.author.mention}")
+        embed.add_field(name="Текст", value=message.content or "Файл", inline=False)
+        await log_channel.send(embed=embed)
+
+@bot.event
+async def on_message_edit(before, after):
+    if before.author.bot or before.content == after.content: return
+    log_channel = discord.utils.get(before.guild.text_channels, name='logs')
+    if log_channel:
+        embed = discord.Embed(title="📝 Изменено", color=discord.Color.orange(), timestamp=datetime.datetime.now(datetime.timezone.utc))
+        embed.add_field(name="Автор", value=before.author.mention)
+        embed.add_field(name="Было", value=before.content, inline=False)
+        embed.add_field(name="Стало", value=after.content, inline=False)
         await log_channel.send(embed=embed)
 
 # --- КОМАНДЫ ---
