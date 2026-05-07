@@ -176,20 +176,23 @@ async def on_message_edit(before, after):
 async def on_member_join(member):
     # ID КАНАЛОВ
     WELCOME_CHANNEL_ID = 1501603960392253541  # Общий чат для приветствия
-    LOG_CHANNEL_NAME = 'logs'                  # Название твоего канала с логами
+    CONFESSION_CHANNEL_ID = 1501617086278144031  # Чат выбора конфессии
+    LOG_CHANNEL_NAME = 'logs'
 
     # 1. ПРИВЕТСТВИЕ В ОБЩЕМ ЧАТЕ
     welcome_channel = bot.get_channel(WELCOME_CHANNEL_ID)
     if welcome_channel:
+        # Формируем текст с кликабельной ссылкой на канал
         welcome_text = (
             f"Мир вам, {member.mention}! 🤝 "
             f"Добро пожаловать на наш христианский сервер. "
             f"Здесь мы вместе изучаем Слово Божье, делимся радостью и "
-            f"поддерживаем друг друга в вере. Чувствуйте себя как дома!"
+            f"поддерживаем друг друга в вере. Чувствуйте себя как дома! "
+            f"Вы можете выбрать свою конфессию в <#{CONFESSION_CHANNEL_ID}>"
         )
         await welcome_channel.send(welcome_text)
 
-    # 2. ОТЧЕТ В ЛОГИ (для админов)
+    # 2. ТЕХНИЧЕСКИЙ ЛОГ ДЛЯ АДМИНОВ
     log_channel = discord.utils.get(member.guild.text_channels, name=LOG_CHANNEL_NAME)
     if log_channel:
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -204,13 +207,12 @@ async def on_member_join(member):
         if member.display_avatar:
             embed.set_thumbnail(url=member.display_avatar.url)
             
-        embed.add_field(name="ID", value=member.id, inline=True)
         embed.add_field(name="Аккаунту дней", value=account_age, inline=True)
-        
         if account_age < 3:
-            embed.add_field(name="⚠️ Внимание", value="Новый аккаунт (возможен рейд)!", inline=False)
+            embed.add_field(name="⚠️ Внимание", value="Новый аккаунт!", inline=False)
             
         await log_channel.send(embed=embed)
+
 
 # Лог выхода участников
 @bot.event
