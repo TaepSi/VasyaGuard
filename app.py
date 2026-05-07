@@ -32,9 +32,6 @@ MUTE_WORDS = [
     'уеб', 'говн', 'гонд', 'член', 'даун', 'лох', 'дебил', 'урод'
 ]
 
-# Для совместимости со старым кодом (если где-то осталось название BAD_WORDS)
-BAD_WORDS = MUTE_WORDS 
-
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
