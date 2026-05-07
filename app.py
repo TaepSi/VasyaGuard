@@ -107,6 +107,27 @@ async def on_message_edit(before, after):
         embed.add_field(name="Стало", value=after.content, inline=False)
         await log_channel.send(embed=embed)
 
+# Лог входа новых участников
+@bot.event
+async def on_member_join(member):
+    log_channel = discord.utils.get(member.guild.text_channels, name='logs')
+    if log_channel:
+        embed = discord.Embed(
+            title="📥 Новый участник", 
+            color=discord.Color.green(), 
+            description=f"{member.mention} зашел на сервер.",
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        # Показываем аватарку новичка, если она есть
+        if member.display_avatar:
+            embed.set_thumbnail(url=member.display_avatar.url)
+            
+        embed.add_field(name="ID аккаунта", value=member.id)
+        embed.add_field(name="Дата регистрации", value=member.created_at.strftime("%d.%m.%Y"))
+        
+        await log_channel.send(embed=embed)
+
+
 # --- КОМАНДЫ ---
 @bot.command()
 async def ping(ctx):
