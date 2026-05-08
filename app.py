@@ -37,6 +37,15 @@ MUTE_WORDS = [
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Слова, которые бот должен игнорировать, даже если там есть плохой корень
+SAFE_WORDS = [
+    'дебаты', 'дебат', 'дебют', 'дебетор', 
+    'благоговение', 'благоговеть', 'природа', 'урожай',
+    'плохо', 'плохой', 'лохматый', 'колебаться', 'неупотребление',
+    'страхование', 'страховка', 'застраховать', 'подстраховаться'
+]
+
+
 # =========================================
 # АНТИСПАМ
 # =========================================
@@ -233,6 +242,46 @@ async def on_message(message):
 
                 await mute_channel.send(embed=embed)
 
+            return
+
+        except Exception as e:
+            print(f"Ошибка при авто-муте: {e}")
+
+        # =========================================
+    # АВТО-МУТ ЗА МАТ (С БЕЛЫМ СПИСКОМ)
+    # =========================================
+    
+    # Создаем копию текста для проверки, чтобы не менять оригинал
+    check_content = content 
+
+    # 1. Убираем из проверки все безопасные слова
+    for safe_word in SAFE_WORDS:
+        check_content = check_content.replace(safe_word, "")
+
+    # 2. Теперь проверяем оставшийся текст на наличие мата
+    if any(word in check_content for word in MUTE_WORDS) and not is_admin:
+        try:
+            await message.delete()
+            duration = datetime.timedelta(days=1)
+            await message.author.timeout(duration, reason=f"Мат: {message.content[:100]}")
+            
+            await message.channel.send(
+                f"🤐 {message.author.mention} замучен на 24 часа. (Следите за языком!)",
+                delete_after=7
+            )
+
+            # ЛОГ В КАНАЛ МУТОВ
+            mute_channel = bot.get_channel(MUTE_LOGS_ID)
+            if mute_channel:
+                embed = discord.Embed(
+                    title="🚫 АВТО-МУТ",
+                    color=discord.Color.red(),
+                    timestamp=datetime.datetime.now(datetime.timezone.utc)
+                )
+                embed.add_field(name="Нарушитель", value=f"{message.author} ({message.author.id})")
+                embed.add_field(name="Сообщение", value=message.content)
+                embed.add_field(name="Срок", value="24 часа")
+                await mute_channel.send(embed=embed)
             return
 
         except Exception as e:
