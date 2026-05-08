@@ -27,12 +27,13 @@ def keep_alive():
 TOKEN = os.getenv("DISCORD_TOKEN")
 MUTE_LOGS_ID = 1501939058803474473
 
-# Это корни слов. Так бот поймает и "пидор", и "пидорасина", и "заебался"
+# Исправленные корни, чтобы не было ложных мутов
 MUTE_WORDS = [
-    'хуй', 'пизд', 'еба', 'ебл', 'бля', 'сук', 'гандон', 'пидор', 'пидар', 
+    'хуй', 'пизд', 'еба', 'ебл', 'бля', 'гандон', 'пидор', 'пидар', 
     'хуе', 'охуе', 'заеб', 'муда', 'шлюх', 'курва', 'дроч', 'сучк', 'трах',
-    'уеб', 'говн', 'гонд', 'член', 'даун', 'лох', 'дебил', 'урод'
+    'уеб', 'гавн', 'гонд', 'член', 'даун', ' дебил', 'уродец', 'уродин', ' сука'
 ]
+# Заметил пробелы? Например ' сука' не даст мут за слово 'рисунок'
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -247,54 +248,48 @@ async def on_message(message):
         except Exception as e:
             print(f"Ошибка при авто-муте: {e}")
 
-        # =========================================
-    # АВТО-МУТ ЗА МАТ (С БЕЛЫМ СПИСКОМ)
+    # =========================================
+    # АВТО-МУТ ЗА МАТ (ФИНАЛЬНАЯ ВЕРСИЯ)
     # =========================================
     
-    # Создаем копию текста для проверки, чтобы не менять оригинал
-    check_content = content 
+    if not is_admin:
+        # Создаем копию сообщения для проверки
+        check_content = content 
 
-    # 1. Убираем из проверки все безопасные слова
-    for safe_word in SAFE_WORDS:
-        check_content = check_content.replace(safe_word, "")
+        # 1. Сначала вырезаем из проверки "безопасные" слова
+        for safe_word in SAFE_WORDS:
+            check_content = check_content.replace(safe_word, "")
 
-    # 2. Теперь проверяем оставшийся текст на наличие мата
-    if any(word in check_content for word in MUTE_WORDS) and not is_admin:
-        try:
-            await message.delete()
-            duration = datetime.timedelta(days=1)
-            await message.author.timeout(duration, reason=f"Мат: {message.content[:100]}")
-            
-            await message.channel.send(
-                f"🤐 {message.author.mention} замучен на 24 часа. (Следите за языком!)",
-                delete_after=7
-            )
-
-            # ЛОГ В КАНАЛ МУТОВ
-            mute_channel = bot.get_channel(MUTE_LOGS_ID)
-            if mute_channel:
-                embed = discord.Embed(
-                    title="🚫 АВТО-МУТ",
-                    color=discord.Color.red(),
-                    timestamp=datetime.datetime.now(datetime.timezone.utc)
+        # 2. Теперь ищем плохие корни в оставшемся тексте
+        if any(bad_root in check_content for bad_root in MUTE_WORDS):
+            try:
+                await message.delete()
+                
+                duration = datetime.timedelta(days=1)
+                await message.author.timeout(duration, reason=f"Мат: {message.content[:100]}")
+                
+                await message.channel.send(
+                    f"🤐 {message.author.mention} замучен на 24 часа. (Следите за языком!)",
+                    delete_after=7
                 )
-                embed.add_field(name="Нарушитель", value=f"{message.author} ({message.author.id})")
-                embed.add_field(name="Сообщение", value=message.content)
-                embed.add_field(name="Срок", value="24 часа")
-                await mute_channel.send(embed=embed)
-            return
 
-        except Exception as e:
-            print(f"Ошибка при авто-муте: {e}")
+                # Отправка лога
+                mute_channel = bot.get_channel(MUTE_LOGS_ID)
+                if mute_channel:
+                    embed = discord.Embed(
+                        title="🚫 АВТО-МУТ",
+                        color=discord.Color.red(),
+                        timestamp=datetime.datetime.now(datetime.timezone.utc)
+                    )
+                    embed.add_field(name="Нарушитель", value=f"{message.author} ({message.author.id})")
+                    embed.add_field(name="Сообщение", value=message.content)
+                    embed.add_field(name="Срок", value="24 часа")
+                    await mute_channel.send(embed=embed)
+                
+                return # Заканчиваем обработку, так как мут уже выдан
 
-    # 2. Удаляем из проверки все безопасные слова
-    for safe in SAFE_WORDS:
-        check_content = check_content.replace(safe, " ")
-
-    # 3. Проверка на мат
-    if any(word in check_content for word in MUTE_WORDS) and not is_admin:
-        # Тут твой код удаления сообщения и мута на 24 часа...
-
+            except Exception as e:
+                print(f"Ошибка при авто-муте: {e}")
 
     # =========================================
     # ФИЛЬТР ССЫЛОК
