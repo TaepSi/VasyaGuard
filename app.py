@@ -3,6 +3,7 @@ from discord.ext import commands
 import datetime
 import os
 import aiosqlite
+import asyncpg 
 from flask import Flask
 from threading import Thread
 from collections import defaultdict
@@ -306,6 +307,23 @@ async def on_message(message):
 
         return
 
+
+    # =========================================
+    # ОБЛАЧНАЯ СТАТИСТИКА (SUPABASE)
+    # =========================================
+    if bot.db_pool:
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute('''
+                INSERT INTO stats (user_id, msg_count) 
+                VALUES ($1, 1)
+                ON CONFLICT (user_id) 
+                DO UPDATE SET msg_count = stats.msg_count + 1
+            ''', message.author.id)
+
+    # Не забываем про команды !
+    await bot.process_commands(message)
+
+    
     # =========================================
     # СТАТИСТИКА
     # =========================================
@@ -335,6 +353,39 @@ async def init_db():
         await db.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, msg_count INTEGER DEFAULT 0)")
         await db.commit()
 
+@bot.tree.command(name="warn", description="Выдать варн пользователю")
+@commands.has_permissions(administrator=True)
+async def warn(interaction: discord.Interaction, member: discord.Member, reason: str):
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute(
+            'INSERT INTO warns (user_id, moderator_id, reason) VALUES ($1, $2, $3)',
+            member.id, interaction.user.id, reason
+        )
+        count = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', member.id)
+
+    log_channel = bot.get_channel(MUTE_LOGS_ID)
+    if log_channel:
+        embed = discord.Embed(title="⚠️ ВАРН", color=discord.Color.gold())
+        embed.add_field(name="Нарушитель", value=f"{member.mention}")
+        embed.add_field(name="Причина", value=reason)
+        embed.add_field(name="Всего варнов", value=str(count))
+        await log_channel.send(embed=embed)
+
+    await interaction.response.send_message(f"Варн выдан {member.display_name}. Всего: {count}", ephemeral=True)
+
+@bot.tree.command(name="check", description="Посмотреть варны пользователя")
+@commands.has_permissions(administrator=True)
+async def check(interaction: discord.Interaction, member: discord.Member):
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch('SELECT reason, timestamp FROM warns WHERE user_id = $1 ORDER BY timestamp DESC', member.id)
+    
+    if not rows:
+        return await interaction.response.send_message("Чист!", ephemeral=True)
+
+    history = "\n".join([f"• `{r['timestamp'].strftime('%d.%m.%y')}`: {r['reason']}" for r in rows])
+    await interaction.response.send_message(f"**История {member.display_name}:**\n{history}", ephemeral=True)
+
+
 # --- ТИКЕТЫ ---
 class TicketView(discord.ui.View):
     def __init__(self):
@@ -360,9 +411,18 @@ class TicketView(discord.ui.View):
         await channel.send(f"Привет {user.mention}! Опиши проблему. Админы скоро подойдут.")
 
 # --- СОБЫТИЯ ---
+bot.db_pool = None
+
+async def init_supabase():
+    # Берет ссылку из Environment на Render
+    DATABASE_URL = os.getenv('DATABASE_URL')
+    bot.db_pool = await asyncpg.create_pool(DATABASE_URL)
+    print("💎 Supabase подключен!")
+
 @bot.event
 async def on_ready():
-    await init_db()
+    await init_db() # Твой старый sqlite
+    await init_supabase() # Новый supabase
     bot.add_view(TicketView())
 
     try:
@@ -372,6 +432,7 @@ async def on_ready():
         print(f"Ошибка sync: {e}")
 
     print(f'✅ {bot.user} заступил на дежурство!')
+
 
 # --- ЛОГИ (ИСПРАВЛЕНО ВРЕМЯ) ---
 @bot.event
