@@ -488,11 +488,20 @@ class TicketView(discord.ui.View):
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         user = interaction.user
-        existing_channel = discord.utils.get(guild.channels, name=f"ticket-{user.name.lower()}")
-        
-        if existing_channel:
-            return await interaction.response.send_message(f"У тебя уже есть тикет: {existing_channel.mention}", ephemeral=True)
 
+        # 1. Проверяем в БД, нет ли у юзера открытого тикета
+        async with bot.db_pool.acquire() as conn:
+            ticket_data = await conn.fetchrow('SELECT channel_id FROM tickets WHERE user_id = $1 AND status = $2', user.id, 'open')
+        
+        if ticket_data:
+            channel = bot.get_channel(ticket_data['channel_id'])
+            if channel: # Если канал реально существует в Дискорде
+                return await interaction.response.send_message(f"У тебя уже есть тикет: {channel.mention}", ephemeral=True)
+            else: # Если в базе есть, а канала нет (удалили вручную) — чистим базу
+                async with bot.db_pool.acquire() as conn:
+                    await conn.execute('DELETE FROM tickets WHERE channel_id = $1', ticket_data['channel_id'])
+
+        # 2. Создаем канал
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -500,8 +509,37 @@ class TicketView(discord.ui.View):
         }
         
         channel = await guild.create_text_channel(f"ticket-{user.name}", overwrites=overwrites)
+
+        # 3. Записываем новый тикет в базу
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute(
+                'INSERT INTO tickets (channel_id, user_id, status) VALUES ($1, $2, $3)',
+                channel.id, user.id, 'open'
+            )
+
         await interaction.response.send_message(f"Тикет создан: {channel.mention}", ephemeral=True)
-        await channel.send(f"Привет {user.mention}! Опиши проблему. Админы скоро подойдут.")
+        
+        # Добавляем кнопку закрытия прямо в новый канал
+        view = CloseTicketView()
+        await channel.send(f"Привет {user.mention}! Опиши проблему. Чтобы закрыть тикет, нажми кнопку ниже.", view=view)
+
+class CloseTicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Закрыть тикет", style=discord.ButtonStyle.red, custom_id="close_ticket")
+    async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Только админ может закрыть (или сам автор, если хочешь)
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("Только администратор может закрыть тикет.", ephemeral=True)
+
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute('DELETE FROM tickets WHERE channel_id = $1', interaction.channel_id)
+
+        await interaction.response.send_message("Тикет закрывается и удаляется из базы...")
+        await asyncio.sleep(3)
+        await interaction.channel.delete()
+
 
 # --- СОБЫТИЯ ---
 bot.db_pool = None
@@ -519,7 +557,8 @@ async def on_ready():
     
     # Регистрируем все постоянные кнопки
     bot.add_view(TicketView())
-    bot.add_view(DebateModView()) 
+    bot.add_view(CloseTicketView()) # Кнопка закрытия тикета
+    bot.add_view(DebateModView()) # Кнопки модерации в дебатах
 
     try:
         await bot.tree.sync()
