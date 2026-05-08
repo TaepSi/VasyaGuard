@@ -225,105 +225,72 @@ async def on_message(message):
             print(f"Ошибка анти-масс-пинга: {e}")
 
     # =========================================
-    # АВТО-МУТ ЗА МАТ
+    # УМНАЯ МОДЕРАЦИЯ (С БД И ПРОГРЕССИЕЙ)
     # =========================================
-
-    if any(word in content for word in MUTE_WORDS) and not is_admin:
-
-        try:
-            await message.delete()
-
-            duration = datetime.timedelta(days=1)
-
-            await message.author.timeout(
-                duration,
-                reason=f"Мат: {message.content[:100]}"
-            )
-
-            await message.channel.send(
-                f"🤐 {message.author.mention} замучен на 24 часа.",
-                delete_after=7
-            )
-
-            mute_channel = bot.get_channel(MUTE_LOGS_ID)
-
-            if mute_channel:
-
-                embed = discord.Embed(
-                    title="🚫 АВТО-МУТ",
-                    color=discord.Color.red(),
-                    timestamp=datetime.datetime.now(datetime.timezone.utc)
-                )
-
-                embed.add_field(
-                    name="Нарушитель",
-                    value=f"{message.author} ({message.author.id})",
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="Сообщение",
-                    value=message.content,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="Срок",
-                    value="24 часа",
-                    inline=True
-                )
-
-                await mute_channel.send(embed=embed)
-
-            return
-
-        except Exception as e:
-            print(f"Ошибка при авто-муте: {e}")
-
-    # =========================================
-    # АВТО-МУТ ЗА МАТ (ФИНАЛЬНАЯ ВЕРСИЯ)
-    # =========================================
-    
     if not is_admin:
-        # Создаем копию сообщения для проверки
-        check_content = content 
+        check_content = content
+        for safe in SAFE_WORDS:
+            check_content = check_content.replace(safe, "")
 
-        # 1. Сначала вырезаем из проверки "безопасные" слова
-        for safe_word in SAFE_WORDS:
-            check_content = check_content.replace(safe_word, "")
-
-        # 2. Теперь ищем плохие корни в оставшемся тексте
         if any(bad_root in check_content for bad_root in MUTE_WORDS):
+            # 1. ПРОВЕРКА НА КАНАЛ ДЕБАТОВ
+            if message.channel.id == 1501863197701963786:
+                await message.channel.send(
+                    f"⚠️ **Подозрение на мат!** <@&1501598779931885741> <@&1501599782047580302>, проверьте.",
+                    view=DebateModView(message)
+                )
+                return
+
+            # 2. ПРОГРЕССИЯ ДЛЯ ОСТАЛЬНЫХ ЧАТОВ
             try:
                 await message.delete()
                 
-                duration = datetime.timedelta(days=1)
-                await message.author.timeout(duration, reason=f"Мат: {message.content[:100]}")
-                
-                await message.channel.send(
-                    f"🤐 {message.author.mention} замучен на 24 часа. (Следите за языком!)",
-                    delete_after=7
-                )
-
-                # Отправка лога
-                mute_channel = bot.get_channel(MUTE_LOGS_ID)
-                if mute_channel:
-                    embed = discord.Embed(
-                        title="🚫 АВТО-МУТ",
-                        color=discord.Color.red(),
-                        timestamp=datetime.datetime.now(datetime.timezone.utc)
+                async with bot.db_pool.acquire() as conn:
+                    # Записываем варн в Supabase
+                    await conn.execute(
+                        'INSERT INTO warns (user_id, moderator_id, reason) VALUES ($1, $2, $3)',
+                        message.author.id, bot.user.id, f"Авто-мут (мат): {message.content[:50]}"
                     )
+                    # Считаем текущие варны
+                    warn_count = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', message.author.id)
+
+                # Канал для анонсов (Велком-чат)
+                welcome_chat = bot.get_channel(1501603960392253541) 
+
+                if warn_count == 1:
+                    await message.author.timeout(datetime.timedelta(hours=1), reason="1-й варн (мат)")
+                    announcement = f"🤐 {message.author.mention} получил **1-й варн** и мут на **1 час** за мат."
+                
+                elif warn_count == 2:
+                    await message.author.timeout(datetime.timedelta(hours=12), reason="2-й варн (мат)")
+                    announcement = f"🤐 {message.author.mention} получил **2-й варн** и мут на **12 часов** за мат."
+                
+                else:
+                    await message.author.ban(reason="3 варна (рецидив мата)")
+                    announcement = f"🔨 {message.author.mention} был **забанен** за систематический мат (3-й варн)."
+
+                # Пишем в общий чат
+                if welcome_chat:
+                    await welcome_chat.send(announcement)
+
+                # Лог в канал варнов
+                log_warn = bot.get_channel(1502244124223471737)
+                if log_warn:
+                    embed = discord.Embed(title="🚫 АВТО-МОДЕРАЦИЯ", color=discord.Color.red())
                     embed.add_field(name="Нарушитель", value=f"{message.author} ({message.author.id})")
                     embed.add_field(name="Сообщение", value=message.content)
-                    embed.add_field(name="Срок", value="24 часа")
-                    await mute_channel.send(embed=embed)
-                
-                return # Заканчиваем обработку, так как мут уже выдан
+                    embed.add_field(name="Наказание", value=announcement)
+                    await log_warn.send(embed=embed)
+
+                return
 
             except Exception as e:
-                print(f"Ошибка при авто-муте: {e}")
+                print(f"Ошибка системы наказаний: {e}")
 
-    # =========================================
+
+    
+    
+    # =========================================         
     # ФИЛЬТР ССЫЛОК
     # =========================================
 
