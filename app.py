@@ -27,6 +27,7 @@ def keep_alive():
 # --- НАСТРОЙКИ ---
 TOKEN = os.getenv("DISCORD_TOKEN")
 MUTE_LOGS_ID = 1501939058803474473
+WARN_LOGS_ID = 1502244124223471737
 
 # Исправленные корни, чтобы не было ложных мутов
 MUTE_WORDS = [
@@ -349,29 +350,12 @@ async def on_message(message):
     await bot.process_commands(message)
 # --- БАЗА ДАННЫХ ---
 async def init_db():
+    # Твой старый sqlite для локальной статистики
     async with aiosqlite.connect("stats.db") as db:
         await db.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, msg_count INTEGER DEFAULT 0)")
         await db.commit()
 
-@bot.tree.command(name="warn", description="Выдать варн пользователю")
-@commands.has_permissions(administrator=True)
-async def warn(interaction: discord.Interaction, member: discord.Member, reason: str):
-    async with bot.db_pool.acquire() as conn:
-        await conn.execute(
-            'INSERT INTO warns (user_id, moderator_id, reason) VALUES ($1, $2, $3)',
-            member.id, interaction.user.id, reason
-        )
-        count = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', member.id)
-
-    log_channel = bot.get_channel(MUTE_LOGS_ID)
-    if log_channel:
-        embed = discord.Embed(title="⚠️ ВАРН", color=discord.Color.gold())
-        embed.add_field(name="Нарушитель", value=f"{member.mention}")
-        embed.add_field(name="Причина", value=reason)
-        embed.add_field(name="Всего варнов", value=str(count))
-        await log_channel.send(embed=embed)
-
-    await interaction.response.send_message(f"Варн выдан {member.display_name}. Всего: {count}", ephemeral=True)
+# --- КОМАНДЫ ВАРНОВ (SUPABASE) ---
 
 @bot.tree.command(name="check", description="Посмотреть варны пользователя")
 @commands.has_permissions(administrator=True)
@@ -385,6 +369,80 @@ async def check(interaction: discord.Interaction, member: discord.Member):
     history = "\n".join([f"• `{r['timestamp'].strftime('%d.%m.%y')}`: {r['reason']}" for r in rows])
     await interaction.response.send_message(f"**История {member.display_name}:**\n{history}", ephemeral=True)
 
+@bot.tree.command(name="warn", description="Выдать варн пользователю")
+@commands.has_permissions(administrator=True)
+async def warn(interaction: discord.Interaction, member: discord.Member, reason: str):
+    async with bot.db_pool.acquire() as conn:
+        # 1. Пишем в базу
+        await conn.execute(
+            'INSERT INTO warns (user_id, moderator_id, reason) VALUES ($1, $2, $3)',
+            member.id, interaction.user.id, reason
+        )
+        count = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', member.id)
+
+    # 2. Логируем в канал
+    log_channel = bot.get_channel(WARN_LOGS_ID)
+    if log_channel:
+        embed = discord.Embed(
+            title="⚠️ НОВЫЙ ВАРН", 
+            color=discord.Color.from_rgb(255, 165, 0),
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        embed.add_field(name="Нарушитель", value=f"{member.mention} ({member.id})", inline=False)
+        embed.add_field(name="Модератор", value=f"{interaction.user.mention}", inline=True)
+        embed.add_field(name="Причина", value=reason, inline=True)
+        embed.add_field(name="Всего варнов", value=f"**{count}**", inline=False)
+        await log_channel.send(embed=embed)
+
+    await interaction.response.send_message(f"✅ Варн выдан {member.mention}. Всего: {count}", ephemeral=True)
+
+@bot.tree.command(name="clearwarns", description="Полностью очистить историю варнов пользователя")
+@commands.has_permissions(administrator=True)
+async def clear_warns(interaction: discord.Interaction, member: discord.Member):
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute('DELETE FROM warns WHERE user_id = $1', member.id)
+
+    log_channel = bot.get_channel(WARN_LOGS_ID)
+    if log_channel:
+        embed = discord.Embed(
+            title="♻️ ИСТОРИЯ ОЧИЩЕНА",
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        embed.add_field(name="Пользователь", value=f"{member.mention}")
+        embed.add_field(name="Модератор", value=interaction.user.mention)
+        await log_channel.send(embed=embed)
+
+    await interaction.response.send_message(f"✅ Все варны {member.display_name} удалены.", ephemeral=True)
+    
+@bot.tree.command(name="unwarn", description="Снять последний варн у пользователя")
+@commands.has_permissions(administrator=True)
+async def unwarn(interaction: discord.Interaction, member: discord.Member):
+    async with bot.db_pool.acquire() as conn:
+        last_warn_id = await conn.fetchval(
+            'SELECT warn_id FROM warns WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 1', 
+            member.id
+        )
+
+        if not last_warn_id:
+            return await interaction.response.send_message("У этого пользователя нет варнов.", ephemeral=True)
+
+        await conn.execute('DELETE FROM warns WHERE warn_id = $1', last_warn_id)
+        remaining = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', member.id)
+
+    log_channel = bot.get_channel(WARN_LOGS_ID)
+    if log_channel:
+        embed = discord.Embed(
+            title="➖ ВАРН СНЯТ",
+            color=discord.Color.blue(),
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
+        )
+        embed.add_field(name="Пользователь", value=f"{member.mention}")
+        embed.add_field(name="Модератор", value=interaction.user.mention)
+        embed.add_field(name="Осталось", value=str(remaining))
+        await log_channel.send(embed=embed)
+
+    await interaction.response.send_message(f"✅ Последний варн снят. Осталось: {remaining}", ephemeral=True)
 
 # --- ТИКЕТЫ ---
 class TicketView(discord.ui.View):
