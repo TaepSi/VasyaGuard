@@ -31,7 +31,7 @@ WARN_LOGS_ID = 1502244124223471737
 DEBATE_CHANNEL_ID = 1501863197701963786
 ADMIN_ROLE_ID = 1501598779931885741
 MOD_ROLE_ID = 1501599782047580302
-
+BAN_LOGS_ID = 1502297873298227222
 
 # Исправленные корни, чтобы не было ложных мутов
 MUTE_WORDS = [
@@ -224,8 +224,8 @@ async def on_message(message):
         except Exception as e:
             print(f"Ошибка анти-масс-пинга: {e}")
 
-    # =========================================
-    # УМНАЯ МОДЕРАЦИЯ (С БД И ПРОГРЕССИЕЙ)
+        # =========================================
+    # УМНАЯ МОДЕРАЦИЯ (6 УРОВНЕЙ НАКАЗАНИЙ)
     # =========================================
     if not is_admin:
         check_content = content
@@ -233,60 +233,78 @@ async def on_message(message):
             check_content = check_content.replace(safe, "")
 
         if any(bad_root in check_content for bad_root in MUTE_WORDS):
-            # 1. ПРОВЕРКА НА КАНАЛ ДЕБАТОВ
-            if message.channel.id == 1501863197701963786:
+            # --- 1. КАНАЛ ДЕБАТОВ (БЕЗ МУТОВ, ТОЛЬКО КНОПКИ) ---
+            if message.channel.id == DEBATE_CHANNEL_ID:
                 await message.channel.send(
-                    f"⚠️ **Подозрение на мат!** <@&1501598779931885741> <@&1501599782047580302>, проверьте.",
+                    f"⚠️ **Подозрение на мат!** <@&1501598779931885741> <@&1501599782047580302>",
                     view=DebateModView(message)
                 )
                 return
 
-            # 2. ПРОГРЕССИЯ ДЛЯ ОСТАЛЬНЫХ ЧАТОВ
+            # --- 2. ПРОГРЕССИЯ ДЛЯ ОБЫЧНЫХ ЧАТОВ ---
             try:
                 await message.delete()
                 
                 async with bot.db_pool.acquire() as conn:
-                    # Записываем варн в Supabase
+                    # Узнаем текущее кол-во нарушений (считаем записи в таблице warns)
+                    # Каждое попадание в этот блок = +1 нарушение в историю
                     await conn.execute(
                         'INSERT INTO warns (user_id, moderator_id, reason) VALUES ($1, $2, $3)',
-                        message.author.id, bot.user.id, f"Авто-мут (мат): {message.content[:50]}"
+                        message.author.id, bot.user.id, f"Авто-мат: {message.content[:50]}"
                     )
-                    # Считаем текущие варны
-                    warn_count = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', message.author.id)
+                    count = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', message.author.id)
 
-                # Канал для анонсов (Велком-чат)
-                welcome_chat = bot.get_channel(1501603960392253541) 
+                welcome_chat = bot.get_channel(WELCOME_CHANNEL_ID)
+                warn_log = bot.get_channel(WARN_LOGS_ID)
+                ban_log = bot.get_channel(BAN_LOGS_ID)
 
-                if warn_count == 1:
-                    await message.author.timeout(datetime.timedelta(hours=1), reason="1-й варн (мат)")
-                    announcement = f"🤐 {message.author.mention} получил **1-й варн** и мут на **1 час** за мат."
+                action_text = ""
                 
-                elif warn_count == 2:
-                    await message.author.timeout(datetime.timedelta(hours=12), reason="2-й варн (мат)")
-                    announcement = f"🤐 {message.author.mention} получил **2-й варн** и мут на **12 часов** за мат."
+                # ЛЕСТНИЦА НАКАЗАНИЙ (Твоя структура)
+                if count == 1:
+                    action_text = "получил **1-й варн** (сообщение удалено)."
                 
-                else:
-                    await message.author.ban(reason="3 варна (рецидив мата)")
-                    announcement = f"🔨 {message.author.mention} был **забанен** за систематический мат (3-й варн)."
+                elif count == 2:
+                    await message.author.timeout(datetime.timedelta(hours=1), reason="2-е нарушение (мат)")
+                    action_text = "получил мут на **1 час** (2-е нарушение)."
+                
+                elif count == 3:
+                    action_text = "получил **2-й варн** (3-е нарушение)."
+                
+                elif count == 4:
+                    await message.author.timeout(datetime.timedelta(hours=12), reason="4-е нарушение (мат)")
+                    action_text = "получил мут на **12 часов** (4-е нарушение)."
+                
+                elif count == 5:
+                    action_text = "получил **3-й варн** (ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ!)."
+                
+                else: # 6-й мат и выше
+                    await message.author.ban(reason="6-е нарушение (систематический мат)")
+                    action_text = "был **ЗАБАНЕН** (6-е нарушение)."
 
-                # Пишем в общий чат
+                # Анонс в Велком-чат
                 if welcome_chat:
-                    await welcome_chat.send(announcement)
+                    await welcome_chat.send(f"⚠️ {message.author.mention} {action_text}")
 
-                # Лог в канал варнов
-                log_warn = bot.get_channel(1502244124223471737)
-                if log_warn:
-                    embed = discord.Embed(title="🚫 АВТО-МОДЕРАЦИЯ", color=discord.Color.red())
-                    embed.add_field(name="Нарушитель", value=f"{message.author} ({message.author.id})")
-                    embed.add_field(name="Сообщение", value=message.content)
-                    embed.add_field(name="Наказание", value=announcement)
-                    await log_warn.send(embed=embed)
+                # Логирование в зависимости от типа наказания
+                if count >= 6: # Лог Бана
+                    if ban_log:
+                        embed = discord.Embed(title="🔨 БАН (АВТО)", color=discord.Color.dark_red())
+                        embed.add_field(name="Нарушитель", value=f"{message.author} ({message.author.id})")
+                        embed.add_field(name="Причина", value="Систематический мат (6/6)")
+                        await ban_log.send(embed=embed)
+                else: # Лог Варна/Мута
+                    if warn_log:
+                        embed = discord.Embed(title="🚫 НАРУШЕНИЕ", color=discord.Color.orange())
+                        embed.add_field(name="Юзер", value=f"{message.author}")
+                        embed.add_field(name="Действие", value=action_text)
+                        embed.add_field(name="Счетчик", value=f"{count}/6")
+                        await warn_log.send(embed=embed)
 
                 return
 
             except Exception as e:
-                print(f"Ошибка системы наказаний: {e}")
-
+                print(f"Ошибка в системе прогрессии: {e}")
 
     
     
@@ -440,6 +458,26 @@ async def unwarn(interaction: discord.Interaction, member: discord.Member):
         await log_channel.send(embed=embed)
 
     await interaction.response.send_message(f"✅ Последний варн снят. Осталось: {remaining}", ephemeral=True)
+
+@bot.tree.command(name="ban", description="Забанить пользователя")
+@commands.has_permissions(administrator=True)
+async def ban(interaction: discord.Interaction, member: discord.Member, reason: str):
+    try:
+        await member.ban(reason=reason)
+        
+        # Лог в канал банов
+        ban_log = bot.get_channel(BAN_LOGS_ID)
+        if ban_log:
+            embed = discord.Embed(title="🔨 РУЧНОЙ БАН", color=discord.Color.red())
+            embed.add_field(name="Нарушитель", value=f"{member.mention} ({member.id})")
+            embed.add_field(name="Модератор", value=interaction.user.mention)
+            embed.add_field(name="Причина", value=reason)
+            await ban_log.send(embed=embed)
+
+        await interaction.response.send_message(f"✅ Пользователь {member.display_name} успешно забанен.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"Ошибка при бане: {e}", ephemeral=True)
+
 
 # --- ТИКЕТЫ ---
 class TicketView(discord.ui.View):
