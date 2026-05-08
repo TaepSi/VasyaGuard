@@ -486,16 +486,26 @@ class CloseTicketView(discord.ui.View):
 
     @discord.ui.button(label="Закрыть тикет", style=discord.ButtonStyle.red, custom_id="close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Только админ может закрыть (или сам автор, если хочешь)
+        # 1. Проверка прав (админ или модер)
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("Только администратор может закрыть тикет.", ephemeral=True)
+            return await interaction.response.send_message("У вас нет прав для закрытия тикета!", ephemeral=True)
 
+        # 2. Сначала удаляем из базы (чтобы юзер мог открыть новый, если что)
         async with bot.db_pool.acquire() as conn:
             await conn.execute('DELETE FROM tickets WHERE channel_id = $1', interaction.channel_id)
 
-        await interaction.response.send_message("Тикет закрывается и удаляется из базы...")
-        await asyncio.sleep(3)
-        await interaction.channel.delete()
+        # 3. Визуальный фидбек
+        await interaction.response.send_message("✅ База очищена. Канал будет удален через пару секунд...")
+        
+        # 4. Удаление канала с небольшой задержкой
+        import asyncio
+        await asyncio.sleep(2)
+        try:
+            await interaction.channel.delete(reason=f"Тикет закрыт модератором {interaction.user}")
+        except discord.Forbidden:
+            await interaction.channel.send("❌ Ошибка: У бота нет прав на удаление каналов! Проверьте настройки ролей.")
+        except Exception as e:
+            print(f"Ошибка при удалении тикета: {e}")
 
 class TicketView(discord.ui.View):
     def __init__(self):
