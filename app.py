@@ -28,6 +28,10 @@ def keep_alive():
 TOKEN = os.getenv("DISCORD_TOKEN")
 MUTE_LOGS_ID = 1501939058803474473
 WARN_LOGS_ID = 1502244124223471737
+DEBATE_CHANNEL_ID = 1501863197701963786
+ADMIN_ROLE_ID = 1501598779931885741
+MOD_ROLE_ID = 1501599782047580302
+
 
 # Исправленные корни, чтобы не было ложных мутов
 MUTE_WORDS = [
@@ -66,6 +70,31 @@ SPAM_TIMEOUT = 10   # минут
 
 MAX_MENTIONS = 5
 MENTION_TIMEOUT = 30
+
+class DebateModView(discord.ui.View):
+    def __init__(self, message: discord.Message):
+        super().__init__(timeout=None)
+        self.message = message
+
+    @discord.ui.button(label="Удалить сообщение", style=discord.ButtonStyle.danger)
+    async def delete_msg(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Проверка прав: только админ или модер
+        if not any(role.id in [ADMIN_ROLE_ID, MOD_ROLE_ID] for role in interaction.user.roles):
+            return await interaction.response.send_message("У вас нет власти здесь!", ephemeral=True)
+        
+        try:
+            await self.message.delete()
+            await interaction.response.edit_message(content=f"✅ Сообщение удалено модератором {interaction.user.mention}", view=None)
+        except:
+            await interaction.response.send_message("Не удалось удалить. Возможно, оно уже удалено.", ephemeral=True)
+
+    @discord.ui.button(label="Оставить", style=discord.ButtonStyle.secondary)
+    async def keep_msg(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not any(role.id in [ADMIN_ROLE_ID, MOD_ROLE_ID] for role in interaction.user.roles):
+            return await interaction.response.send_message("У вас нет власти здесь!", ephemeral=True)
+            
+        await interaction.response.edit_message(content=f"⚪ Модератор {interaction.user.mention} разрешил оставить это сообщение.", view=None)
+
 
 @bot.event
 async def on_message(message):
@@ -482,7 +511,10 @@ async def init_supabase():
 async def on_ready():
     await init_db() # Твой старый sqlite
     await init_supabase() # Новый supabase
+    
+    # Регистрируем все постоянные кнопки
     bot.add_view(TicketView())
+    bot.add_view(DebateModView()) 
 
     try:
         await bot.tree.sync()
@@ -491,7 +523,6 @@ async def on_ready():
         print(f"Ошибка sync: {e}")
 
     print(f'✅ {bot.user} заступил на дежурство!')
-
 
 # --- ЛОГИ (ИСПРАВЛЕНО ВРЕМЯ) ---
 @bot.event
