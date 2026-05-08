@@ -287,6 +287,15 @@ async def on_message(message):
         except Exception as e:
             print(f"Ошибка при авто-муте: {e}")
 
+    # 2. Удаляем из проверки все безопасные слова
+    for safe in SAFE_WORDS:
+        check_content = check_content.replace(safe, " ")
+
+    # 3. Проверка на мат
+    if any(word in check_content for word in MUTE_WORDS) and not is_admin:
+        # Тут твой код удаления сообщения и мута на 24 часа...
+
+
     # =========================================
     # ФИЛЬТР ССЫЛОК
     # =========================================
