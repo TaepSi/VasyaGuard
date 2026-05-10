@@ -629,7 +629,6 @@ async def who_am_i(ctx):
         # 1. Инфа о человеке
         user_data = await conn.fetchrow('SELECT status, registered_at FROM users WHERE user_id = $1', user.id)
         if not user_data:
-            # Регистрируем при первом вызове
             await conn.execute('INSERT INTO users (user_id) VALUES ($1) ON CONFLICT DO NOTHING', user.id)
             user_data = await conn.fetchrow('SELECT status, registered_at FROM users WHERE user_id = $1', user.id)
 
@@ -649,6 +648,10 @@ async def who_am_i(ctx):
             user.id
         )
         today_msgs = today_msgs or 0
+
+        # 6. Варны
+        warn_count = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', user.id)
+        warn_count = warn_count or 0
 
     # Собираем embed
     days_on_server = (datetime.datetime.now(datetime.timezone.utc) - user.joined_at).days if user.joined_at else "?"
@@ -676,6 +679,7 @@ async def who_am_i(ctx):
     
     embed.add_field(name="💬 Сообщений всего", value=str(total_msgs), inline=True)
     embed.add_field(name="📆 Сообщений сегодня", value=str(today_msgs), inline=True)
+    embed.add_field(name="⚠️ Варнов", value=str(warn_count), inline=True)
 
     await ctx.send(embed=embed)
 
