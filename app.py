@@ -366,6 +366,16 @@ async def on_message(message):
     # =========================================
 
     await bot.process_commands(message)
+        # Вставь это в самый конец on_message перед bot.process_commands
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO stats (user_id, msg_count) 
+            VALUES ($1, 1)
+            ON CONFLICT (user_id) 
+            DO UPDATE SET msg_count = stats.msg_count + 1
+        ''', message.author.id)
+
+
 # --- БАЗА ДАННЫХ ---
 async def init_db():
     # Твой старый sqlite для локальной статистики
@@ -738,19 +748,34 @@ async def sync(ctx):
 async def ping(ctx):
     await ctx.send(f"🏓 Понг! {round(bot.latency * 1000)}мс")
 
-@bot.command()
+@bot.command(name="top")
 async def top(ctx):
-    async with aiosqlite.connect("stats.db") as db:
-        async with db.execute("SELECT user_id, msg_count FROM users ORDER BY msg_count DESC LIMIT 10") as cursor:
-            rows = await cursor.fetchall()
+    # Теперь лезем в Supabase через пул подключений
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT user_id, msg_count 
+            FROM stats 
+            ORDER BY msg_count DESC 
+            LIMIT 10
+        ''')
     
-    if not rows: return await ctx.send("Статистика пуста.")
+    if not rows:
+        return await ctx.send("Статистика в облаке пока пуста.")
     
-    embed = discord.Embed(title="🏆 Топ активных участников", color=discord.Color.gold())
-    for i, (user_id, count) in enumerate(rows, 1):
-        user = bot.get_user(user_id)
-        name = user.name if user else f"ID: {user_id}"
-        embed.add_field(name=f"{i}. {name}", value=f"Сообщений: {count}", inline=False)
+    embed = discord.Embed(
+        title="🏆 Топ активных участников (Supabase)", 
+        color=discord.Color.gold(),
+        timestamp=datetime.datetime.now(datetime.timezone.utc)
+    )
+    
+    description = ""
+    for i, row in enumerate(rows, 1):
+        # Пробуем найти юзера по ID, чтобы вывести имя, а не цифры
+        member = ctx.guild.get_member(row['user_id'])
+        name = member.display_name if member else f"Юзер {row['user_id']}"
+        description += f"**{i}.** {name} — `{row['msg_count']}` сообщ.\n"
+    
+    embed.description = description
     await ctx.send(embed=embed)
 
 @bot.command()
