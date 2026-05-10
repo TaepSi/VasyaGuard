@@ -621,8 +621,12 @@ async def setup_tickets(ctx):
 # КОМАНДА !ктоя
 # =========================================
 @bot.command(name="ктоя")
-async def who_am_i(ctx):
-    user = ctx.author
+async def who_am_i(ctx, member: discord.Member = None):
+    # Если ник не указан, показываем инфу о себе
+    if member is None:
+        member = ctx.author
+
+    user = member
     guild = ctx.guild
 
     async with bot.db_pool.acquire() as conn:
