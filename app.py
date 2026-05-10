@@ -8,6 +8,7 @@ from flask import Flask
 from threading import Thread
 from collections import defaultdict
 import time
+from profanity_check import predict
 
 # --- БЛОК ОЖИВЛЯЛКИ (ИСПРАВЛЕН ПОРТ) ---
 app = Flask('')
@@ -33,22 +34,10 @@ MOD_ROLE_ID = 1501599782047580302
 BAN_LOGS_ID = 1502297873298227222
 WELCOME_CHAT_ID = 1501603960392253541
 
-MUTE_WORDS = [
-    'хуй', 'пизд', 'еба', 'ебл', 'бля', 'гандон', 'пидор', 'пидар', 
-    'хуе', 'охуе', 'заеб', 'муда', 'шлюх', 'курва', 'дроч', 'сучк', ' трах',
-    'уеб', 'гавн', 'гонд', ' член ', 'даун', ' дебил', 'уродец', 'уродин', ' сука'
-]
+# --- СТАРЫЕ СПИСКИ УДАЛЕНЫ ЗА НЕНАДОБНОСТЬЮ ---
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
-
-SAFE_WORDS = [
-    'дебаты', 'дебат', 'дебют', 'дебетор', 
-    'благоговение', 'благоговеть', 'природа', 'урожай',
-    'плохо', 'плохой', 'лохматый', 'колебаться', 'неупотребление',
-    'страхование', 'страховка', 'застраховать', 'подстраховаться', 
-    'правки', 'правили', 'исправлений', 'источниками', 'страх', 'страница'
-]
 
 # =========================================
 # АНТИСПАМ
@@ -156,14 +145,13 @@ async def on_message(message):
             print(f"Ошибка анти-масс-пинга: {e}")
 
     # =========================================
-    # УМНАЯ МОДЕРАЦИЯ (6 СТУПЕНЕЙ)
+    # УМНАЯ МОДЕРАЦИЯ (6 СТУПЕНЕЙ) - НОВАЯ ВЕРСИЯ
     # =========================================
     if not is_admin:
-        check_content = content
-        for safe in SAFE_WORDS:
-            check_content = check_content.replace(safe, "")
+        # predict вернет [1], если мат, и [0], если чисто
+        is_dirty = predict([message.content])[0]
 
-        if any(bad_root in check_content for bad_root in MUTE_WORDS):
+        if is_dirty == 1:
             try:
                 await message.delete()
             except:
@@ -235,7 +223,7 @@ async def on_message(message):
         return
 
     # =========================================
-    # ОБЛАЧНАЯ СТАТИСТИКА (SUPABASE) - ТОЛЬКО ОДИН РАЗ
+    # ОБЛАЧНАЯ СТАТИСТИКА (SUPABASE)
     # =========================================
     if bot.db_pool:
         async with bot.db_pool.acquire() as conn:
@@ -247,7 +235,7 @@ async def on_message(message):
             ''', message.author.id)
 
     # =========================================
-    # ОБРАБОТКА КОМАНД (ВЫЗЫВАЕТСЯ ТОЛЬКО ОДИН РАЗ)
+    # ОБРАБОТКА КОМАНД
     # =========================================
     await bot.process_commands(message)
 
