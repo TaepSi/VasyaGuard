@@ -2,3 +2,4 @@ discord.py
 flask
 aiosqlite
 asyncpg
+alt-profanity-check
