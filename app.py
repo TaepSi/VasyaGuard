@@ -432,23 +432,27 @@ async def clear_warns(interaction: discord.Interaction, member: discord.Member):
     async with bot.db_pool.acquire() as conn:
         await conn.execute('DELETE FROM warns WHERE user_id = $1', member.id)
 
+    # Лог в админ-канал
     log_channel = bot.get_channel(WARN_LOGS_ID)
     if log_channel:
-        embed = discord.Embed(
-            title="♻️ ИСТОРИЯ ОЧИЩЕНА",
-            color=discord.Color.green(),
-            timestamp=datetime.datetime.now(datetime.timezone.utc)
-        )
+        embed = discord.Embed(title="♻️ ИСТОРИЯ ОЧИЩЕНА", color=discord.Color.green())
         embed.add_field(name="Пользователь", value=f"{member.mention}")
         embed.add_field(name="Модератор", value=interaction.user.mention)
         await log_channel.send(embed=embed)
 
+    # Публичное уведомление в чат общения
+    public_chat = bot.get_channel(WELCOME_CHAT_ID)
+    if public_chat:
+        await public_chat.send(f"✨ Модератор аннулировал все варны пользователя {member.mention}. Чистый лист!")
+
     await interaction.response.send_message(f"✅ Все варны {member.display_name} удалены.", ephemeral=True)
+
     
 @bot.tree.command(name="unwarn", description="Снять последний варн у пользователя")
 @commands.has_permissions(administrator=True)
 async def unwarn(interaction: discord.Interaction, member: discord.Member):
     async with bot.db_pool.acquire() as conn:
+        # 1. Находим ID последнего варна
         last_warn_id = await conn.fetchval(
             'SELECT warn_id FROM warns WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 1', 
             member.id
@@ -457,22 +461,30 @@ async def unwarn(interaction: discord.Interaction, member: discord.Member):
         if not last_warn_id:
             return await interaction.response.send_message("У этого пользователя нет варнов.", ephemeral=True)
 
+        # 2. Удаляем его
         await conn.execute('DELETE FROM warns WHERE warn_id = $1', last_warn_id)
+        
+        # 3. Считаем остаток
         remaining = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', member.id)
 
+    # --- ЛОГ В АДМИН-КАНАЛ ---
     log_channel = bot.get_channel(WARN_LOGS_ID)
     if log_channel:
-        embed = discord.Embed(
-            title="➖ ВАРН СНЯТ",
-            color=discord.Color.blue(),
-            timestamp=datetime.datetime.now(datetime.timezone.utc)
-        )
-        embed.add_field(name="Пользователь", value=f"{member.mention}")
-        embed.add_field(name="Модератор", value=interaction.user.mention)
-        embed.add_field(name="Осталось", value=str(remaining))
+        embed = discord.Embed(title="➖ ВАРН СНЯТ", color=discord.Color.blue(), timestamp=datetime.datetime.now(datetime.timezone.utc))
+        embed.add_field(name="С кого", value=f"{member.mention}")
+        embed.add_field(name="Кто снял", value=interaction.user.mention)
+        embed.add_field(name="Осталось варнов", value=str(remaining))
         await log_channel.send(embed=embed)
 
-    await interaction.response.send_message(f"✅ Последний варн снят. Осталось: {remaining}", ephemeral=True)
+    # --- ПУБЛИЧНОЕ УВЕДОМЛЕНИЕ В ЧАТ ОБЩЕНИЯ ---
+    public_chat = bot.get_channel(WELCOME_CHAT_ID)
+    if public_chat:
+        await public_chat.send(
+            f"😇 Модератор снял варн с {member.mention}.\n"
+            f"**Осталось варнов:** {remaining}"
+        )
+
+    await interaction.response.send_message(f"✅ Последний варн снят. У {member.display_name} осталось **{remaining}**.", ephemeral=True)
 
 @bot.tree.command(name="ban", description="Забанить пользователя")
 @commands.has_permissions(administrator=True)
