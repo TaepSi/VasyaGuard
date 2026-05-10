@@ -34,8 +34,6 @@ MOD_ROLE_ID = 1501599782047580302
 BAN_LOGS_ID = 1502297873298227222
 WELCOME_CHAT_ID = 1501603960392253541
 
-# --- СТАРЫЕ СПИСКИ УДАЛЕНЫ ЗА НЕНАДОБНОСТЬЮ ---
-
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -85,6 +83,22 @@ async def on_message(message):
 
     content = message.content.lower()
     is_admin = message.author.guild_permissions.administrator
+
+    # =========================================
+    # АВТОРЕГИСТРАЦИЯ И СТАТИСТИКА В SUPABASE
+    # =========================================
+    if bot.db_pool:
+        async with bot.db_pool.acquire() as conn:
+            # Регистрируем юзера, если его нет в таблице users
+            await conn.execute('INSERT INTO users (user_id) VALUES ($1) ON CONFLICT DO NOTHING', message.author.id)
+            
+            # Считаем сообщения за сегодня
+            await conn.execute('''
+                INSERT INTO daily_message_counts (user_id, message_date, msg_count)
+                VALUES ($1, CURRENT_DATE, 1)
+                ON CONFLICT (user_id, message_date)
+                DO UPDATE SET msg_count = daily_message_counts.msg_count + 1
+            ''', message.author.id)
 
     # =========================================
     # АНТИСПАМ
@@ -602,6 +616,124 @@ async def top(ctx):
 async def setup_tickets(ctx):
     embed = discord.Embed(title="Поддержка", description="Нажми кнопку ниже, чтобы создать приватный чат с админами.")
     await ctx.send(embed=embed, view=TicketView())
+
+# =========================================
+# КОМАНДА !ктоя
+# =========================================
+@bot.command(name="ктоя")
+async def who_am_i(ctx):
+    user = ctx.author
+    guild = ctx.guild
+
+    async with bot.db_pool.acquire() as conn:
+        # 1. Инфа о человеке
+        user_data = await conn.fetchrow('SELECT status, registered_at FROM users WHERE user_id = $1', user.id)
+        if not user_data:
+            # Регистрируем при первом вызове
+            await conn.execute('INSERT INTO users (user_id) VALUES ($1) ON CONFLICT DO NOTHING', user.id)
+            user_data = await conn.fetchrow('SELECT status, registered_at FROM users WHERE user_id = $1', user.id)
+
+        # 2. Описание
+        desc_data = await conn.fetchrow('SELECT description FROM user_descriptions WHERE user_id = $1', user.id)
+
+        # 3. Награды
+        awards = await conn.fetch('SELECT award_name FROM user_awards WHERE user_id = $1', user.id)
+
+        # 4. Статистика общая
+        total_msgs = await conn.fetchval('SELECT msg_count FROM stats WHERE user_id = $1', user.id)
+        total_msgs = total_msgs or 0
+
+        # 5. Статистика за сегодня
+        today_msgs = await conn.fetchval(
+            'SELECT msg_count FROM daily_message_counts WHERE user_id = $1 AND message_date = CURRENT_DATE',
+            user.id
+        )
+        today_msgs = today_msgs or 0
+
+    # Собираем embed
+    days_on_server = (datetime.datetime.now(datetime.timezone.utc) - user.joined_at).days if user.joined_at else "?"
+    roles = ", ".join([role.mention for role in user.roles if role.name != "@everyone"]) or "Нет ролей"
+
+    embed = discord.Embed(
+        title=f"📋 Профиль: {user.display_name}",
+        color=discord.Color.blue(),
+        timestamp=datetime.datetime.now(datetime.timezone.utc)
+    )
+    embed.set_thumbnail(url=user.display_avatar.url if user.display_avatar else user.default_avatar.url)
+    
+    embed.add_field(name="🏷 Ник", value=user.name, inline=True)
+    embed.add_field(name="📅 На сервере", value=f"{days_on_server} дн.", inline=True)
+    embed.add_field(name="🛡 Роли", value=roles, inline=False)
+    
+    status_text = user_data['status'] or "Не установлен"
+    embed.add_field(name="📝 Статус", value=status_text, inline=False)
+    
+    desc_text = desc_data['description'] if desc_data and desc_data['description'] else "Описание отсутствует"
+    embed.add_field(name="📖 Описание", value=desc_text, inline=False)
+    
+    awards_text = ", ".join([a['award_name'] for a in awards]) if awards else "Нет наград"
+    embed.add_field(name="🏆 Награды", value=awards_text, inline=False)
+    
+    embed.add_field(name="💬 Сообщений всего", value=str(total_msgs), inline=True)
+    embed.add_field(name="📆 Сообщений сегодня", value=str(today_msgs), inline=True)
+
+    await ctx.send(embed=embed)
+
+# =========================================
+# КОМАНДА !статус
+# =========================================
+@bot.command(name="статус")
+async def set_status(ctx, *, text=None):
+    if text is None:
+        await ctx.send("❌ Используй: `!статус твой текст`")
+        return
+    
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO users (user_id, status) VALUES ($1, $2)
+            ON CONFLICT (user_id) DO UPDATE SET status = $2, last_updated = NOW()
+        ''', ctx.author.id, text)
+    
+    await ctx.send(f"✅ Статус обновлён!")
+
+# =========================================
+# КОМАНДА !описание
+# =========================================
+@bot.command(name="описание")
+async def set_description(ctx, *, text=None):
+    if text is None:
+        await ctx.send("❌ Используй: `!описание твой текст` (или `!описание стереть`)")
+        return
+
+    user_id = ctx.author.id
+
+    if text.strip().lower() in ["стереть", "удалить", "очистить"]:
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute('DELETE FROM user_descriptions WHERE user_id = $1', user_id)
+        await ctx.send("🗑 Описание удалено.")
+        return
+
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO user_descriptions (user_id, description) VALUES ($1, $2)
+            ON CONFLICT (user_id) DO UPDATE SET description = $2, updated_at = NOW()
+        ''', user_id, text)
+
+    await ctx.send("✅ Описание сохранено!")
+
+# =========================================
+# КОМАНДА !награда (только для админов)
+# =========================================
+@bot.command(name="награда")
+@commands.has_permissions(administrator=True)
+async def give_award(ctx, member: discord.Member, *, award_name: str):
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute(
+            'INSERT INTO user_awards (user_id, award_name, awarded_by) VALUES ($1, $2, $3)',
+            member.id, award_name, ctx.author.id
+        )
+    
+    await ctx.send(f"🏆 Награда **{award_name}** выдана пользователю {member.mention}!")
 
 # --- ЗАПУСК ---
 if __name__ == "__main__":
