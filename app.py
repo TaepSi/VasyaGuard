@@ -391,28 +391,40 @@ async def check(interaction: discord.Interaction, member: discord.Member):
 @commands.has_permissions(administrator=True)
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: str):
     async with bot.db_pool.acquire() as conn:
-        # 1. Пишем в базу
+        # 1. Записываем в базу
         await conn.execute(
             'INSERT INTO warns (user_id, moderator_id, reason) VALUES ($1, $2, $3)',
             member.id, interaction.user.id, reason
         )
+        # 2. Получаем актуальный счетчик
         count = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', member.id)
 
-    # 2. Логируем в канал
+    # --- ЛОГ В АДМИН-КАНАЛ (Детальный) ---
     log_channel = bot.get_channel(WARN_LOGS_ID)
     if log_channel:
         embed = discord.Embed(
-            title="⚠️ НОВЫЙ ВАРН", 
-            color=discord.Color.from_rgb(255, 165, 0),
-            timestamp=datetime.datetime.now(datetime.timezone.utc)
+            title="⚠️ РУЧНОЙ ВАРН", 
+            color=discord.Color.orange(),
+            timestamp=datetime.datetime.now()
         )
         embed.add_field(name="Нарушитель", value=f"{member.mention} ({member.id})", inline=False)
         embed.add_field(name="Модератор", value=f"{interaction.user.mention}", inline=True)
         embed.add_field(name="Причина", value=reason, inline=True)
-        embed.add_field(name="Всего варнов", value=f"**{count}**", inline=False)
+        embed.add_field(name="Всего варнов", value=str(count), inline=False)
         await log_channel.send(embed=embed)
 
-    await interaction.response.send_message(f"✅ Варн выдан {member.mention}. Всего: {count}", ephemeral=True)
+    # --- ПУБЛИЧНОЕ УВЕДОМЛЕНИЕ В ЧАТ ОБЩЕНИЯ ---
+    public_chat = bot.get_channel(WELCOME_CHAT_ID)
+    if public_chat:
+        # Здесь пишем причину для всех
+        await public_chat.send(
+            f"⚠️ {member.mention} получил варн от модератора.\n"
+            f"**Причина:** {reason}\n"
+            f"**Всего варнов:** {count}"
+        )
+
+    # Ответ модератору (видишь только ты)
+    await interaction.response.send_message(f"✅ Варн выдан {member.display_name}. Всего: {count}", ephemeral=True)
 
 @bot.tree.command(name="clearwarns", description="Полностью очистить историю варнов пользователя")
 @commands.has_permissions(administrator=True)
