@@ -454,6 +454,7 @@ async def on_ready():
     bot.add_view(TicketView())
     bot.add_view(CloseTicketView())
     bot.add_view(DebateModView())
+    bot.add_view(OrientalRoleView()) 
 
     try:
         await bot.tree.sync()
@@ -742,6 +743,62 @@ async def give_award(ctx, member: discord.Member, *, award_name: str):
         )
     
     await ctx.send(f"🏆 Награда **{award_name}** выдана пользователю {member.mention}!")
+
+# =========================================
+# КНОПКА ВЫДАЧИ РОЛИ "ОРИЕНТАЛЬНОЕ ПРАВОСЛАВИЕ"
+# =========================================
+ORIENTAL_ROLE_ID = 1503168573936373860
+
+class OrientalRoleView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Я ААЦ / Ориентальный православный", style=discord.ButtonStyle.primary, custom_id="oriental_role_btn")
+    async def give_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        role = interaction.guild.get_role(ORIENTAL_ROLE_ID)
+        if role is None:
+            return await interaction.response.send_message("❌ Роль не найдена. Сообщи админу.", ephemeral=True)
+
+        member = interaction.user
+        if role in member.roles:
+            await interaction.response.send_message("ℹ️ У тебя уже есть эта роль.", ephemeral=True)
+        else:
+            await member.add_roles(role)
+            await interaction.response.send_message("✅ Роль «Ориентальное Православие» выдана!", ephemeral=True)
+
+
+# =========================================
+# КНОПКА ВЫДАЧИ РОЛИ "ОРИЕНТАЛЬНОЕ ПРАВОСЛАВИЕ"
+# =========================================
+ORIENTAL_ROLE_ID = 1503168573936373860
+
+class OrientalRoleView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Я ААЦ / Ориентальный православный", style=discord.ButtonStyle.primary, custom_id="oriental_role_btn")
+    async def give_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        role = interaction.guild.get_role(ORIENTAL_ROLE_ID)
+        if role is None:
+            return await interaction.response.send_message("❌ Роль не найдена. Сообщи админу.", ephemeral=True)
+
+        member = interaction.user
+        if role in member.roles:
+            await interaction.response.send_message("ℹ️ У тебя уже есть эта роль.", ephemeral=True)
+        else:
+            await member.add_roles(role)
+            await interaction.response.send_message("✅ Роль «Ориентальное Православие» выдана!", ephemeral=True)
+
+
+@bot.command(name="setup_oriental")
+@commands.has_permissions(administrator=True)
+async def setup_oriental(ctx):
+    embed = discord.Embed(
+        title="🕊 Ориентальное Православие",
+        description="Нажми кнопку ниже, чтобы получить роль «Ориентальный православный».\n\nСюда относятся: Армянская Апостольская, Коптская, Сирийская, Эфиопская и другие древневосточные церкви.",
+        color=discord.Color.purple()
+    )
+    await ctx.send(embed=embed, view=OrientalRoleView())
 
 # --- ЗАПУСК ---
 if __name__ == "__main__":
