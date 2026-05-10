@@ -259,7 +259,7 @@ async def on_message(message):
                 count = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', message.author.id)
 
             # Каналы для уведомлений
-            welcome_chat = bot.get_channel(WELCKOME_CHAT_ID) # Велком
+            welcome_chat = bot.get_channel(WELCOME_CHAT_ID) # Велком
             warn_log = bot.get_channel(WARN_LOGS_ID)
             ban_log = bot.get_channel(BAN_LOGS_ID)
 
