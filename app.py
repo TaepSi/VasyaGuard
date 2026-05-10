@@ -15,7 +15,6 @@ app = Flask('')
 def home(): return "VasyaGuard is online!"
 
 def run_web():
-    # Render автоматически подставит нужный порт
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
@@ -34,18 +33,15 @@ MOD_ROLE_ID = 1501599782047580302
 BAN_LOGS_ID = 1502297873298227222
 WELCOME_CHAT_ID = 1501603960392253541
 
-# Исправленные корни, чтобы не было ложных мутов
 MUTE_WORDS = [
     'хуй', 'пизд', 'еба', 'ебл', 'бля', 'гандон', 'пидор', 'пидар', 
     'хуе', 'охуе', 'заеб', 'муда', 'шлюх', 'курва', 'дроч', 'сучк', ' трах',
     'уеб', 'гавн', 'гонд', ' член ', 'даун', ' дебил', 'уродец', 'уродин', ' сука'
 ]
-# Заметил пробелы? Например ' сука' не даст мут за слово 'рисунок'
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Слова, которые бот должен игнорировать, даже если там есть плохой корень
 SAFE_WORDS = [
     'дебаты', 'дебат', 'дебют', 'дебетор', 
     'благоговение', 'благоговеть', 'природа', 'урожай',
@@ -54,21 +50,18 @@ SAFE_WORDS = [
     'правки', 'правили', 'исправлений', 'источниками', 'страх', 'страница'
 ]
 
-
 # =========================================
 # АНТИСПАМ
 # =========================================
-
 user_messages = defaultdict(list)
 
-SPAM_LIMIT = 5      # сообщений
-SPAM_TIME = 4       # секунд
-SPAM_TIMEOUT = 10   # минут
+SPAM_LIMIT = 5
+SPAM_TIME = 4
+SPAM_TIMEOUT = 10
 
 # =========================================
 # АНТИ МАСС УПОМИНАНИЯ
 # =========================================
-
 MAX_MENTIONS = 5
 MENTION_TIMEOUT = 30
 
@@ -79,7 +72,6 @@ class DebateModView(discord.ui.View):
 
     @discord.ui.button(label="Удалить сообщение", style=discord.ButtonStyle.danger)
     async def delete_msg(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Проверка прав: только админ или модер
         if not any(role.id in [ADMIN_ROLE_ID, MOD_ROLE_ID] for role in interaction.user.roles):
             return await interaction.response.send_message("У вас нет власти здесь!", ephemeral=True)
         
@@ -99,7 +91,6 @@ class DebateModView(discord.ui.View):
 
 @bot.event
 async def on_message(message):
-
     if message.author.bot:
         return
 
@@ -109,124 +100,63 @@ async def on_message(message):
     # =========================================
     # АНТИСПАМ
     # =========================================
-
     now = time.time()
-
     user_messages[message.author.id].append(now)
-
-    # оставляем только свежие сообщения
     user_messages[message.author.id] = [
         t for t in user_messages[message.author.id]
         if now - t <= SPAM_TIME
     ]
 
-    # если спамит
     if len(user_messages[message.author.id]) >= SPAM_LIMIT and not is_admin:
-
         try:
             duration = datetime.timedelta(minutes=SPAM_TIMEOUT)
+            await message.author.timeout(duration, reason="Антиспам")
+            await message.channel.send(f"🚫 {message.author.mention} получил мут за спам.", delete_after=5)
 
-            await message.author.timeout(
-                duration,
-                reason="Антиспам"
-            )
-
-            await message.channel.send(
-                f"🚫 {message.author.mention} получил мут за спам.",
-                delete_after=5
-            )
-
-            # ЛОГ В КАНАЛ МУТОВ
             mute_channel = bot.get_channel(MUTE_LOGS_ID)
-
             if mute_channel:
-
                 embed = discord.Embed(
                     title="🚫 АНТИСПАМ",
                     color=discord.Color.orange(),
                     timestamp=datetime.datetime.now(datetime.timezone.utc)
                 )
-
-                embed.add_field(
-                    name="Пользователь",
-                    value=f"{message.author} ({message.author.id})",
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="Наказание",
-                    value=f"{SPAM_TIMEOUT} минут тайм-аут",
-                    inline=False
-                )
-
+                embed.add_field(name="Пользователь", value=f"{message.author} ({message.author.id})", inline=False)
+                embed.add_field(name="Наказание", value=f"{SPAM_TIMEOUT} минут тайм-аут", inline=False)
                 await mute_channel.send(embed=embed)
 
             user_messages[message.author.id].clear()
-
             return
-
         except Exception as e:
             print(f"Ошибка антиспама: {e}")
 
     # =========================================
     # АНТИ МАСС УПОМИНАНИЯ
     # =========================================
-
     if len(message.mentions) >= MAX_MENTIONS and not is_admin:
-
         try:
             await message.delete()
-
             duration = datetime.timedelta(minutes=MENTION_TIMEOUT)
+            await message.author.timeout(duration, reason="Массовые упоминания")
+            await message.channel.send(f"🚫 {message.author.mention} получил мут за массовые упоминания.", delete_after=5)
 
-            await message.author.timeout(
-                duration,
-                reason="Массовые упоминания"
-            )
-
-            await message.channel.send(
-                f"🚫 {message.author.mention} получил мут за массовые упоминания.",
-                delete_after=5
-            )
-
-            # ЛОГ В КАНАЛ МУТОВ
             mute_channel = bot.get_channel(MUTE_LOGS_ID)
-
             if mute_channel:
-
                 embed = discord.Embed(
                     title="🚫 МАСС УПОМИНАНИЯ",
                     color=discord.Color.red(),
                     timestamp=datetime.datetime.now(datetime.timezone.utc)
                 )
-
-                embed.add_field(
-                    name="Пользователь",
-                    value=f"{message.author} ({message.author.id})",
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="Упоминаний",
-                    value=str(len(message.mentions)),
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="Наказание",
-                    value=f"{MENTION_TIMEOUT} минут тайм-аут",
-                    inline=False
-                )
-
+                embed.add_field(name="Пользователь", value=f"{message.author} ({message.author.id})", inline=False)
+                embed.add_field(name="Упоминаний", value=str(len(message.mentions)), inline=False)
+                embed.add_field(name="Наказание", value=f"{MENTION_TIMEOUT} минут тайм-аут", inline=False)
                 await mute_channel.send(embed=embed)
 
             return
-
         except Exception as e:
             print(f"Ошибка анти-масс-пинга: {e}")
 
-        # =========================================
-    # УМНАЯ МОДЕРАЦИЯ (6 СТУПЕНЕЙ ПО ТВОЕЙ СХЕМЕ)
+    # =========================================
+    # УМНАЯ МОДЕРАЦИЯ (6 СТУПЕНЕЙ)
     # =========================================
     if not is_admin:
         check_content = content
@@ -234,13 +164,11 @@ async def on_message(message):
             check_content = check_content.replace(safe, "")
 
         if any(bad_root in check_content for bad_root in MUTE_WORDS):
-            # 1. СРАЗУ УДАЛЯЕМ
             try:
                 await message.delete()
             except:
                 pass
 
-            # 2. ДЕБАТЫ (Особый режим)
             if message.channel.id == DEBATE_CHANNEL_ID:
                 await message.channel.send(
                     f"⚠️ **Подозрение на мат в дебатах!** <@&{ADMIN_ROLE_ID}> <@&{MOD_ROLE_ID}>",
@@ -248,87 +176,66 @@ async def on_message(message):
                 )
                 return
 
-            # 3. РАБОТА С БД И СЧЕТЧИКОМ
             async with bot.db_pool.acquire() as conn:
-                # Добавляем запись о нарушении
                 await conn.execute(
                     'INSERT INTO warns (user_id, moderator_id, reason) VALUES ($1, $2, $3)',
                     message.author.id, bot.user.id, f"Мат: {message.content[:50]}"
                 )
-                # Узнаем текущий номер нарушения
                 count = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', message.author.id)
 
-            # Каналы для уведомлений
-            welcome_chat = bot.get_channel(WELCOME_CHAT_ID) # Велком
+            welcome_chat = bot.get_channel(WELCOME_CHAT_ID)
             warn_log = bot.get_channel(WARN_LOGS_ID)
             ban_log = bot.get_channel(BAN_LOGS_ID)
 
             action_text = ""
             
-            # --- ТВОЯ ЛЕСТНИЦА НАКАЗАНИЙ ---
-            if count == 1: # 1-й мат
+            if count == 1:
                 action_text = "получил **1-й варн** (сообщение удалено)."
-            
-            elif count == 2: # 2-й мат
+            elif count == 2:
                 await message.author.timeout(datetime.timedelta(hours=1), reason="2-й мат (1ч мут)")
                 action_text = "получил мут на **1 час** (2-е нарушение)."
-            
-            elif count == 3: # 3-й мат
+            elif count == 3:
                 action_text = "получил **2-й варн** (3-е нарушение)."
-            
-            elif count == 4: # 4-й мат
+            elif count == 4:
                 await message.author.timeout(datetime.timedelta(hours=12), reason="4-й мат (12ч мут)")
                 action_text = "получил мут на **12 часов** (4-е нарушение)."
-            
-            elif count == 5: # 5-й мат
+            elif count == 5:
                 action_text = "получил **3-й варн** (ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ!)."
-            
-            else: # 6-й мат и выше
+            else:
                 try:
                     await message.author.ban(reason="Систематический мат (6/6)")
                     action_text = "был **ЗАБАНЕН** за рецидив мата (6-е нарушение)."
                 except Exception as e:
                     action_text = f"должен быть забанен, но у бота нет прав! Ошибка: {e}"
 
-            # 4. УВЕДОМЛЕНИЕ В ЧАТ (С УПОМИНАНИЕМ)
             if welcome_chat:
                 await welcome_chat.send(f"⚠️ {message.author.mention}, ты {action_text}")
 
-            # 5. ЛОГИРОВАНИЕ
             if count >= 6:
                 if ban_log:
-                    emb = discord.Embed(title="🔨 АВТО-БАН", color=discord.Color.dark_red(), timestamp=datetime.datetime.now())
+                    emb = discord.Embed(title="🔨 АВТО-БАН", color=discord.Color.dark_red(), timestamp=datetime.datetime.now(datetime.timezone.utc))
                     emb.add_field(name="Нарушитель", value=f"{message.author.mention}")
                     emb.add_field(name="Причина", value="6-й мат (автоматически)")
                     await ban_log.send(embed=emb)
             else:
                 if warn_log:
-                    emb = discord.Embed(title="🚫 АВТО-МОДЕРАЦИЯ", color=discord.Color.orange(), timestamp=datetime.datetime.now())
+                    emb = discord.Embed(title="🚫 АВТО-МОДЕРАЦИЯ", color=discord.Color.orange(), timestamp=datetime.datetime.now(datetime.timezone.utc))
                     emb.add_field(name="Юзер", value=f"{message.author.mention}")
                     emb.add_field(name="Итог", value=action_text)
                     emb.add_field(name="Счетчик", value=f"{count}/6")
                     await warn_log.send(embed=emb)
             return
 
-    
     # =========================================         
     # ФИЛЬТР ССЫЛОК
     # =========================================
-
     if "http" in content and not is_admin:
-
         await message.delete()
-
-        await message.channel.send(
-            f"🚫 {message.author.mention}, ссылки запрещены.",
-            delete_after=5
-        )
-
+        await message.channel.send(f"🚫 {message.author.mention}, ссылки запрещены.", delete_after=5)
         return
 
-
     # =========================================
-    # ОБЛАЧНАЯ СТАТИСТИКА (SUPABASE)
+    # ОБЛАЧНАЯ СТАТИСТИКА (SUPABASE) - ТОЛЬКО ОДИН РАЗ
     # =========================================
     if bot.db_pool:
         async with bot.db_pool.acquire() as conn:
@@ -339,46 +246,14 @@ async def on_message(message):
                 DO UPDATE SET msg_count = stats.msg_count + 1
             ''', message.author.id)
 
-    # Не забываем про команды !
+    # =========================================
+    # ОБРАБОТКА КОМАНД (ВЫЗЫВАЕТСЯ ТОЛЬКО ОДИН РАЗ)
+    # =========================================
     await bot.process_commands(message)
-
-    
-    # =========================================
-    # СТАТИСТИКА
-    # =========================================
-
-    async with aiosqlite.connect("stats.db") as db:
-
-        await db.execute(
-            "INSERT OR IGNORE INTO users (user_id, msg_count) VALUES (?, 0)",
-            (message.author.id,)
-        )
-
-        await db.execute(
-            "UPDATE users SET msg_count = msg_count + 1 WHERE user_id = ?",
-            (message.author.id,)
-        )
-
-        await db.commit()
-
-    # =========================================
-    # КОМАНДЫ
-    # =========================================
-
-    await bot.process_commands(message)
-        # Вставь это в самый конец on_message перед bot.process_commands
-    async with bot.db_pool.acquire() as conn:
-        await conn.execute('''
-            INSERT INTO stats (user_id, msg_count) 
-            VALUES ($1, 1)
-            ON CONFLICT (user_id) 
-            DO UPDATE SET msg_count = stats.msg_count + 1
-        ''', message.author.id)
 
 
 # --- БАЗА ДАННЫХ ---
 async def init_db():
-    # Твой старый sqlite для локальной статистики
     async with aiosqlite.connect("stats.db") as db:
         await db.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, msg_count INTEGER DEFAULT 0)")
         await db.commit()
@@ -401,21 +276,18 @@ async def check(interaction: discord.Interaction, member: discord.Member):
 @commands.has_permissions(administrator=True)
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: str):
     async with bot.db_pool.acquire() as conn:
-        # 1. Записываем в базу
         await conn.execute(
             'INSERT INTO warns (user_id, moderator_id, reason) VALUES ($1, $2, $3)',
             member.id, interaction.user.id, reason
         )
-        # 2. Получаем актуальный счетчик
         count = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', member.id)
 
-    # --- ЛОГ В АДМИН-КАНАЛ (Детальный) ---
     log_channel = bot.get_channel(WARN_LOGS_ID)
     if log_channel:
         embed = discord.Embed(
             title="⚠️ РУЧНОЙ ВАРН", 
             color=discord.Color.orange(),
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
         )
         embed.add_field(name="Нарушитель", value=f"{member.mention} ({member.id})", inline=False)
         embed.add_field(name="Модератор", value=f"{interaction.user.mention}", inline=True)
@@ -423,17 +295,14 @@ async def warn(interaction: discord.Interaction, member: discord.Member, reason:
         embed.add_field(name="Всего варнов", value=str(count), inline=False)
         await log_channel.send(embed=embed)
 
-    # --- ПУБЛИЧНОЕ УВЕДОМЛЕНИЕ В ЧАТ ОБЩЕНИЯ ---
     public_chat = bot.get_channel(WELCOME_CHAT_ID)
     if public_chat:
-        # Здесь пишем причину для всех
         await public_chat.send(
             f"⚠️ {member.mention} получил варн от модератора.\n"
             f"**Причина:** {reason}\n"
             f"**Всего варнов:** {count}"
         )
 
-    # Ответ модератору (видишь только ты)
     await interaction.response.send_message(f"✅ Варн выдан {member.display_name}. Всего: {count}", ephemeral=True)
 
 @bot.tree.command(name="clearwarns", description="Полностью очистить историю варнов пользователя")
@@ -442,7 +311,6 @@ async def clear_warns(interaction: discord.Interaction, member: discord.Member):
     async with bot.db_pool.acquire() as conn:
         await conn.execute('DELETE FROM warns WHERE user_id = $1', member.id)
 
-    # Лог в админ-канал
     log_channel = bot.get_channel(WARN_LOGS_ID)
     if log_channel:
         embed = discord.Embed(title="♻️ ИСТОРИЯ ОЧИЩЕНА", color=discord.Color.green())
@@ -450,7 +318,6 @@ async def clear_warns(interaction: discord.Interaction, member: discord.Member):
         embed.add_field(name="Модератор", value=interaction.user.mention)
         await log_channel.send(embed=embed)
 
-    # Публичное уведомление в чат общения
     public_chat = bot.get_channel(WELCOME_CHAT_ID)
     if public_chat:
         await public_chat.send(f"✨ Модератор аннулировал все варны пользователя {member.mention}. Чистый лист!")
@@ -462,7 +329,6 @@ async def clear_warns(interaction: discord.Interaction, member: discord.Member):
 @commands.has_permissions(administrator=True)
 async def unwarn(interaction: discord.Interaction, member: discord.Member):
     async with bot.db_pool.acquire() as conn:
-        # 1. Находим ID последнего варна
         last_warn_id = await conn.fetchval(
             'SELECT warn_id FROM warns WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 1', 
             member.id
@@ -471,13 +337,9 @@ async def unwarn(interaction: discord.Interaction, member: discord.Member):
         if not last_warn_id:
             return await interaction.response.send_message("У этого пользователя нет варнов.", ephemeral=True)
 
-        # 2. Удаляем его
         await conn.execute('DELETE FROM warns WHERE warn_id = $1', last_warn_id)
-        
-        # 3. Считаем остаток
         remaining = await conn.fetchval('SELECT COUNT(*) FROM warns WHERE user_id = $1', member.id)
 
-    # --- ЛОГ В АДМИН-КАНАЛ ---
     log_channel = bot.get_channel(WARN_LOGS_ID)
     if log_channel:
         embed = discord.Embed(title="➖ ВАРН СНЯТ", color=discord.Color.blue(), timestamp=datetime.datetime.now(datetime.timezone.utc))
@@ -486,7 +348,6 @@ async def unwarn(interaction: discord.Interaction, member: discord.Member):
         embed.add_field(name="Осталось варнов", value=str(remaining))
         await log_channel.send(embed=embed)
 
-    # --- ПУБЛИЧНОЕ УВЕДОМЛЕНИЕ В ЧАТ ОБЩЕНИЯ ---
     public_chat = bot.get_channel(WELCOME_CHAT_ID)
     if public_chat:
         await public_chat.send(
@@ -501,8 +362,6 @@ async def unwarn(interaction: discord.Interaction, member: discord.Member):
 async def ban(interaction: discord.Interaction, member: discord.Member, reason: str):
     try:
         await member.ban(reason=reason)
-        
-        # Лог в канал банов
         ban_log = bot.get_channel(BAN_LOGS_ID)
         if ban_log:
             embed = discord.Embed(title="🔨 РУЧНОЙ БАН", color=discord.Color.red())
@@ -523,18 +382,13 @@ class CloseTicketView(discord.ui.View):
 
     @discord.ui.button(label="Закрыть тикет", style=discord.ButtonStyle.red, custom_id="close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 1. Проверка прав (админ или модер)
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("У вас нет прав для закрытия тикета!", ephemeral=True)
 
-        # 2. Сначала удаляем из базы (чтобы юзер мог открыть новый, если что)
         async with bot.db_pool.acquire() as conn:
             await conn.execute('DELETE FROM tickets WHERE channel_id = $1', interaction.channel_id)
 
-        # 3. Визуальный фидбек
         await interaction.response.send_message("✅ База очищена. Канал будет удален через пару секунд...")
-        
-        # 4. Удаление канала с небольшой задержкой
         import asyncio
         await asyncio.sleep(2)
         try:
@@ -553,19 +407,17 @@ class TicketView(discord.ui.View):
         guild = interaction.guild
         user = interaction.user
 
-        # 1. Проверяем в БД, нет ли у юзера открытого тикета
         async with bot.db_pool.acquire() as conn:
             ticket_data = await conn.fetchrow('SELECT channel_id FROM tickets WHERE user_id = $1 AND status = $2', user.id, 'open')
         
         if ticket_data:
             channel = bot.get_channel(ticket_data['channel_id'])
-            if channel: # Если канал реально существует в Дискорде
+            if channel:
                 return await interaction.response.send_message(f"У тебя уже есть тикет: {channel.mention}", ephemeral=True)
-            else: # Если в базе есть, а канала нет (удалили вручную) — чистим базу
+            else:
                 async with bot.db_pool.acquire() as conn:
                     await conn.execute('DELETE FROM tickets WHERE channel_id = $1', ticket_data['channel_id'])
 
-        # 2. Создаем канал
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -574,7 +426,6 @@ class TicketView(discord.ui.View):
         
         channel = await guild.create_text_channel(f"ticket-{user.name}", overwrites=overwrites)
 
-        # 3. Записываем новый тикет в базу
         async with bot.db_pool.acquire() as conn:
             await conn.execute(
                 'INSERT INTO tickets (channel_id, user_id, status) VALUES ($1, $2, $3)',
@@ -582,8 +433,6 @@ class TicketView(discord.ui.View):
             )
 
         await interaction.response.send_message(f"Тикет создан: {channel.mention}", ephemeral=True)
-        
-        # Добавляем кнопку закрытия прямо в новый канал
         view = CloseTicketView()
         await channel.send(f"Привет {user.mention}! Опиши проблему. Чтобы закрыть тикет, нажми кнопку ниже.", view=view)
 
@@ -592,20 +441,17 @@ class TicketView(discord.ui.View):
 bot.db_pool = None
 
 async def init_supabase():
-    # Берет ссылку из Environment на Render
     DATABASE_URL = os.getenv('DATABASE_URL')
     bot.db_pool = await asyncpg.create_pool(DATABASE_URL)
     print("💎 Supabase подключен!")
 
 @bot.event
 async def on_ready():
-    await init_db() # Твой старый sqlite
-    await init_supabase() # Новый supabase
-    
-    # Регистрируем все постоянные кнопки
+    await init_db()
+    await init_supabase()
     bot.add_view(TicketView())
-    bot.add_view(CloseTicketView()) # Кнопка закрытия тикета
-    bot.add_view(DebateModView()) # Кнопки модерации в дебатах
+    bot.add_view(CloseTicketView())
+    bot.add_view(DebateModView())
 
     try:
         await bot.tree.sync()
@@ -640,15 +486,12 @@ async def on_message_edit(before, after):
 # Лог входа новых участников
 @bot.event
 async def on_member_join(member):
-    # ID КАНАЛОВ
-    WELCOME_CHANNEL_ID = 1501603960392253541  # Общий чат для приветствия
-    CONFESSION_CHANNEL_ID = 1501617086278144031  # Чат выбора конфессии
+    WELCOME_CHANNEL_ID = 1501603960392253541
+    CONFESSION_CHANNEL_ID = 1501617086278144031
     LOG_CHANNEL_NAME = 'logs'
 
-    # 1. ПРИВЕТСТВИЕ В ОБЩЕМ ЧАТЕ
     welcome_channel = bot.get_channel(WELCOME_CHANNEL_ID)
     if welcome_channel:
-        # Формируем текст с кликабельной ссылкой на канал
         welcome_text = (
             f"Мир вам, {member.mention}! 🤝 "
             f"Добро пожаловать на наш христианский сервер. "
@@ -658,7 +501,6 @@ async def on_member_join(member):
         )
         await welcome_channel.send(welcome_text)
 
-    # 2. ТЕХНИЧЕСКИЙ ЛОГ ДЛЯ АДМИНОВ
     log_channel = discord.utils.get(member.guild.text_channels, name=LOG_CHANNEL_NAME)
     if log_channel:
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -701,23 +543,19 @@ async def on_member_remove(member):
 @bot.tree.command(name="report", description="Отправить жалобу на игрока (только для чата дебатов)")
 @discord.app_commands.describe(нарушитель="На кого жалуемся?", причина="Что именно он нарушил?")
 async def report(interaction: discord.Interaction, нарушитель: discord.Member, причина: str):
-    # Твои ID каналов
-    DEBATE_CHANNEL_ID = 1501863197701963786  # чат-дебатов
-    REPORTS_LOG_ID = 1501935770280395014     # жалобы
+    DEBATE_CHANNEL_ID = 1501863197701963786
+    REPORTS_LOG_ID = 1501935770280395014
 
-    # 1. Проверяем канал
     if interaction.channel_id != DEBATE_CHANNEL_ID:
         return await interaction.response.send_message(
             f"❌ Эту команду можно использовать только в канале <#{DEBATE_CHANNEL_ID}>!", 
             ephemeral=True
         )
 
-    # 2. Ищем канал для админов
     report_channel = bot.get_channel(REPORTS_LOG_ID)
     if not report_channel:
         return await interaction.response.send_message("❌ Ошибка: Канал для жалоб не найден.", ephemeral=True)
 
-    # 3. Создаем карточку жалобы
     embed = discord.Embed(
         title="🚨 Новая жалоба", 
         color=discord.Color.red(),
@@ -728,20 +566,15 @@ async def report(interaction: discord.Interaction, нарушитель: discord
     embed.add_field(name="Причина", value=причина, inline=False)
     embed.set_footer(text=f"ID автора: {interaction.user.id}")
 
-    # Отправляем в канал #жалобы
     await report_channel.send(embed=embed)
     
-    # Ответ пользователю (скрытый)
     await interaction.response.send_message("✅ Ваша жалоба отправлена администрации. Спасибо!", ephemeral=True)
 
-# Команда для синхронизации слеш-команд
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def sync(ctx):
     await bot.tree.sync()
     await ctx.send("✅ Команда `/report` синхронизирована и готова к работе!")
-
-
 
 # --- КОМАНДЫ ---
 @bot.command()
@@ -750,7 +583,6 @@ async def ping(ctx):
 
 @bot.command(name="top")
 async def top(ctx):
-    # Теперь лезем в Supabase через пул подключений
     async with bot.db_pool.acquire() as conn:
         rows = await conn.fetch('''
             SELECT user_id, msg_count 
@@ -763,14 +595,13 @@ async def top(ctx):
         return await ctx.send("Статистика в облаке пока пуста.")
     
     embed = discord.Embed(
-        title="🏆 Топ активных участников (Supabase)", 
+        title="🏆 Топ активных участников", 
         color=discord.Color.gold(),
         timestamp=datetime.datetime.now(datetime.timezone.utc)
     )
     
     description = ""
     for i, row in enumerate(rows, 1):
-        # Пробуем найти юзера по ID, чтобы вывести имя, а не цифры
         member = ctx.guild.get_member(row['user_id'])
         name = member.display_name if member else f"Юзер {row['user_id']}"
         description += f"**{i}.** {name} — `{row['msg_count']}` сообщ.\n"
